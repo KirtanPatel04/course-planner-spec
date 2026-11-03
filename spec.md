@@ -10,6 +10,15 @@ The Course Planner is a web application that helps UNO students, especially inco
 4. **BG-4: Students need fewer advisor meetings for routine approvals.** Submission, approval, and feedback happen inside the application. (Goal model: S1)
 5. **BG-5: Enrollment and planning data stay accurate.** The application stays in sync with the University Registration System, and approved schedules are enrolled without manual re-entry. (Goal model: G7, G8, S3)
 
+# Non-goals
+
+- Authentication and credential storage. UNO single sign-on handles these.
+- Editing course, section, seat, hold, or advisor-assignment data. The University Registration System is the system of record.
+- Department or Program Manager features, including editing Programs or Degree Requirements.
+- Registering students for courses without an advisor's approval.
+- Waitlists, tuition, billing, and financial aid.
+- Native mobile apps. The web application only needs to work in a mobile browser.
+
 # Domain Model
 
 ## Actors
@@ -81,6 +90,21 @@ User stories describe what a student or advisor does. "The system shall" stateme
 - **FR-018**: If the University Registration System cannot be reached, the system shall show the time of the last successful sync, mark validation results as Unverified, block new submissions until a successful sync, and queue enrollments for retry every 15 minutes for up to 24 hours before notifying the student and advisor that enrollment did not go through. *(BG-5)*
 - **FR-019**: The system shall only let a student view and change their own schedules and plan of study, and only let an advisor view and decide on schedules of students assigned to them in the University Registration System. *(BG-5)*
 - **FR-020**: The system shall send an approved schedule for enrollment at most once. Repeated approval requests for the same schedule shall be ignored. *(BG-5)*
+
+# Nonfunctional Requirements
+
+Listed in priority order. Each one names the parts of this spec it comes from and how it is checked. Numbers marked *(assumed)* are my own targets, not values from the University; change them if better figures become available.
+
+- **NFR-001: Student record privacy.** Course history, holds, schedules, plans of study, and exception justifications are student education records. Every request shall be authorized on the server against the signed-in user's identity and, for advisors, the current advisor assignment from the University Registration System. Data shall be sent only over HTTPS. Error messages and logs shall not reveal another student's data. *Traces to:* FR-019, AC-033, AC-034, Actors (Student, Academic Advisor), Description (single sign-on). *Checked by:* AC-033 and AC-034 run against the API directly, not only through the user interface.
+- **NFR-002: State integrity under concurrent requests.** Schedule status changes shall follow only the allowed transitions in Draft Schedule, and two requests that race (double-clicked Approve, two browser tabs submitting for the same Term, an advisor approving while the student withdraws) shall leave exactly one valid outcome. Each schedule is sent for enrollment at most once. *Traces to:* Draft Schedule statuses and transitions, FR-017, FR-020, AC-014, AC-029, AC-030, AC-035. *Checked by:* AC-035 and a test that sends a withdraw and an approve for the same schedule at the same time.
+- **NFR-003: Data freshness and traceability.** During a Term's registration window, registration data used for validation shall be no more than 60 minutes old; older data shall be shown as Unverified. Every Validation Result shall show the time of the data it used. *Traces to:* FR-010, FR-018, Validation Result, BG-5, AC-019, AC-020, AC-031. *Checked by:* AC-020 and AC-031.
+- **NFR-004: Durable pending work.** Queued enrollments, pending retries, and unsent notifications shall survive an application restart and continue where they left off, and an enrollment retry shall never re-send a section that already has an Enrolled Enrollment Record. *Traces to:* FR-014, FR-018, FR-020, AC-032, BG-5. *Checked by:* restarting the application during the 24-hour retry period in AC-032 and confirming the retry still happens once.
+- **NFR-005: Availability during registration windows.** The application shall be available 99.5% of the time during each Term's registration window *(assumed)*, with up to 500 students signed in at once *(assumed)*. When the University Registration System is unavailable, students and advisors can still sign in, view schedules and plans, and edit drafts (FR-018). *Traces to:* Term (registration window), FR-018, BG-1, BG-4. *Checked by:* a load test at 500 simulated users with the registration system stubbed out.
+- **NFR-006: Responsive validation feedback.** After a student adds or removes a section, the updated Validation Results shall appear within 1 second for 95% of edits *(assumed)*, not counting time spent waiting on the University Registration System. *Traces to:* FR-003, AC-004 ("without me leaving or refreshing the page"), BG-1. *Checked by:* timing AC-004 and AC-005 under the NFR-005 load.
+- **NFR-007: Auditability.** Every status change, Advisor Decision, Exception Request, Enrollment Record, and Notification shall be stored with who caused it (student, advisor, or the system) and when, and shall not be edited or deleted by any user. *Traces to:* Advisor Decision (timestamp), Enrollment Record, FR-015 (system comments), BG-5. *Checked by:* after running AC-013 through AC-027, the history of each schedule lists every transition in order.
+- **NFR-008: Accessibility.** Every student and advisor screen shall meet WCAG 2.1 Level AA, the standard UNO, as a public university, is held to for web content. The weekly calendar shall have a list view that a keyboard and screen reader can use, since a calendar grid on its own is hard to operate without a mouse. *Traces to:* FR-002, FR-007, FR-008, BG-4 (students complete routine approvals without a meeting). *Checked by:* an automated accessibility scan plus a keyboard-only run of AC-003, AC-013, and AC-016.
+- **NFR-009: Notification timeliness.** In-app notifications shall appear within 1 minute and emails shall be handed to the university mail service within 5 minutes of the event *(assumed)*. *Traces to:* Notification, FR-006, FR-014, FR-015, BG-4. *Checked by:* timing AC-013 and AC-025.
+- **NFR-010: Replaceable registration-system integration.** All communication with the University Registration System shall go through one component, so that it can be replaced by a simulated system for development and testing, or adapted if the University changes how it exposes PeopleSoft data, without changing validation, planning, or review logic. *Traces to:* Actors (University Registration System), FR-010, FR-014, FR-018, Description (system of record). *Checked by:* every acceptance criterion runs against the simulated registration system.
 
 # Acceptance Criteria
 
