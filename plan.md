@@ -168,7 +168,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `Validator.validateSchedule` (parts: `SECTION_FULL`, `SECTION_CANCELLED`). `RegistrationSync.refreshForStudent` must actually replace that student's sections, holds and history in the snapshot (it may already do this after slice 2).
 - **Depends on:** 2, and 3 to 6 for AT-009-1.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 8: Job Runner and hourly sync
 
