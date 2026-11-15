@@ -17,6 +17,7 @@ import type { Validator } from './validator';
 const EDITABLE: ScheduleStatus[] = ['DRAFT', 'RETURNED'];
 /** "Submitted, Approved, or later": at most one per student per Term (Draft Schedule, AC-014). */
 const ACTIVE: ScheduleStatus[] = ['SUBMITTED', 'APPROVED', 'ENROLLED', 'PARTIALLY_ENROLLED'];
+const APPROVED_OR_LATER: ScheduleStatus[] = ['APPROVED', 'ENROLLED', 'PARTIALLY_ENROLLED'];
 
 const activeSubmissionExists = () => new DomainError('ACTIVE_SUBMISSION_EXISTS',
   'You already have a submitted schedule for this term. Withdraw it before submitting another one.');
@@ -223,6 +224,8 @@ export class ScheduleManager {
    */
   async approve(scheduleId: ScheduleId, actor: Actor): Promise<ScheduleView> {
     const row = await this.requireRow(scheduleId);
+    // A repeated approval is ignored and answers with the schedule as it is (FR-020; test_plan.md G-11).
+    if (APPROVED_OR_LATER.includes(row.status)) return this.getSchedule(scheduleId);
     if (row.status !== 'SUBMITTED') throw new DomainError('INVALID_STATE', 'Only a Submitted schedule can be approved');
 
     const now = this.now();
@@ -236,7 +239,12 @@ export class ScheduleManager {
       await tx.enqueueJob({ id: randomUUID(), kind: 'ENROLLMENT', key: scheduleId, runAt: now, firstAttemptAt: null, attempts: 0 });
       return true;
     });
-    if (!approved) throw new DomainError('INVALID_STATE', 'Only a Submitted schedule can be approved');
+    if (!approved) {
+      // Lost a race: another approval won (ignore this one), or a withdraw did (reject).
+      const current = await this.requireRow(scheduleId);
+      if (APPROVED_OR_LATER.includes(current.status)) return this.getSchedule(scheduleId);
+      throw new DomainError('INVALID_STATE', 'Only a Submitted schedule can be approved');
+    }
 
     const { termName } = await this.describe(row);
     await this.notifier.notify(row.studentId, 'SCHEDULE_APPROVED', scheduleId,
