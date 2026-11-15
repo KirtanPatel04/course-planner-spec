@@ -284,7 +284,9 @@ export class PostgresDataStore implements DataStore {
 
   // ----- enrollment -----
 
-  insertEnrollmentRecord(_record: EnrollmentRecord): Promise<void> { return ni('insertEnrollmentRecord'); }
+  async insertEnrollmentRecord(record: EnrollmentRecord): Promise<void> {
+    await (await this.db()).query('INSERT INTO enrollment_records (schedule_id, data) VALUES ($1, $2)', [record.scheduleId, JSON.stringify(record)]);
+  }
   async listEnrollmentRecords(id: ScheduleId): Promise<EnrollmentRecord[]> {
     const { rows } = await (await this.db()).query<{ data: EnrollmentRecord }>(
       'SELECT data FROM enrollment_records WHERE schedule_id = $1 ORDER BY seq', [id]);
@@ -305,8 +307,13 @@ export class PostgresDataStore implements DataStore {
       'SELECT data FROM jobs WHERE run_at <= $1 AND ($2::text IS NULL OR kind = $2) ORDER BY run_at, id', [now, kind ?? null]);
     return rows.map((r) => r.data);
   }
-  updateJob(_job: Job): Promise<void> { return ni('updateJob'); }
-  deleteJob(_id: string): Promise<void> { return ni('deleteJob'); }
+  async updateJob(job: Job): Promise<void> {
+    await (await this.db()).query('UPDATE jobs SET run_at = $2, data = $3 WHERE id = $1', [job.id, job.runAt, JSON.stringify(job)]);
+  }
+
+  async deleteJob(id: string): Promise<void> {
+    await (await this.db()).query('DELETE FROM jobs WHERE id = $1', [id]);
+  }
 
   // ----- notifications -----
 

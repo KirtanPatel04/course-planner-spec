@@ -371,7 +371,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `Enrollment.processEnrollmentJob` (success path: send sections without an ENROLLED record, record results, `COMPLETED`); `ScheduleManager.recordEnrollmentOutcome`; `Planner.applyEnrollment`; `PostgresDataStore`: `insertEnrollmentRecord`, `updateJob`, `deleteJob`.
 - **Depends on:** 8, 10, 13, 16.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 21: Enroll at most once
 

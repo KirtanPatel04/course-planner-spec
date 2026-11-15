@@ -280,7 +280,9 @@ export class ScheduleManager {
   }
 
   /** Approved → Enrolled or Partially Enrolled (FR-014). Called by Enrollment. */
-  async recordEnrollmentOutcome(_scheduleId: ScheduleId, _status: 'ENROLLED' | 'PARTIALLY_ENROLLED'): Promise<void> {
-    throw new NotImplementedError('ScheduleManager.recordEnrollmentOutcome');
+  async recordEnrollmentOutcome(scheduleId: ScheduleId, status: 'ENROLLED' | 'PARTIALLY_ENROLLED'): Promise<void> {
+    const recorded = await this.store.transaction((tx) => tx.updateScheduleStatus(
+      scheduleId, 'APPROVED', {}, { scheduleId, from: 'APPROVED', to: status, actor: { kind: 'SYSTEM' }, at: this.now() }));
+    if (!recorded) throw new DomainError('INVALID_STATE', 'Only an Approved schedule can be enrolled');
   }
 }
