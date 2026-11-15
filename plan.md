@@ -212,7 +212,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `Planner.getPlan` (generates and saves when none exists). `PostgresDataStore`: `getPlan`, `savePlan`. Route: `GET /plan`.
 - **Depends on:** 9 (Planner uses Degree Audit for the remaining requirements).
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 11: Manual plan moves and plan validation
 
