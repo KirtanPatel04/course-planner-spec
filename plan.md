@@ -344,7 +344,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `ReviewQueue.getDashboard`. Route: `GET /advisor/dashboard`.
 - **Depends on:** 7, 15, 17.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 19: Side-by-side review
 
