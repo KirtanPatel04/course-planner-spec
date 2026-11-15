@@ -145,8 +145,22 @@ export class ScheduleManager {
    *         INVALID_INPUT if the section is not in the schedule or does not carry `reasonCode`,
    *         INVALID_STATE unless status is Draft or Returned.
    */
-  async requestException(_scheduleId: ScheduleId, _sectionId: SectionId, _reasonCode: ReasonCode, _justification: string): Promise<ScheduleView> {
-    throw new NotImplementedError('ScheduleManager.requestException');
+  async requestException(scheduleId: ScheduleId, sectionId: SectionId, reasonCode: ReasonCode, justification: string): Promise<ScheduleView> {
+    // Only spaces counts as no justification (test_plan.md G-12).
+    if (typeof justification !== 'string' || !justification.trim()) {
+      throw new DomainError('JUSTIFICATION_REQUIRED', 'Explain why you need this exception');
+    }
+    const row = await this.requireRow(scheduleId);
+    if (!row.sectionIds.includes(sectionId)) throw new DomainError('INVALID_INPUT', 'The section is not in this schedule');
+    const results = await this.validator.validateSchedule({ studentId: row.studentId, term: row.term, sectionIds: row.sectionIds });
+    const flagged = results.find((r) => r.sectionId === sectionId)?.flags.some((f) => f.code === reasonCode);
+    if (!flagged) throw new DomainError('INVALID_INPUT', 'The section is not flagged with that reason code');
+    if (!EDITABLE.includes(row.status)) throw new DomainError('INVALID_STATE', 'Only a Draft or Returned schedule can be changed');
+
+    await this.store.insertExceptionRequest({
+      id: randomUUID(), scheduleId, sectionId, reasonCode, justification, createdAt: this.now(),
+    });
+    return this.getSchedule(scheduleId);
   }
 
   /**
