@@ -357,7 +357,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `ReviewQueue.getReviewView`. Route: `GET /advisor/schedules/:id/review`.
 - **Depends on:** 11, 13.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 20: Enrollment
 
