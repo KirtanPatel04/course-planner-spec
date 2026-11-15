@@ -38,6 +38,8 @@ export class RegistrationSync {
     await this.store.saveRegistrationData(fresh, syncedAt);
     // FR-015: changed sections, holds and histories go to Revalidator (D6).
     await this.revalidator.revalidate(report);
+    // FR-012: a changed course history regenerates that student's plan (AC-021).
+    for (const studentId of report.changedHistoryStudentIds) await this.planner.regenerate(studentId);
     return report;
   }
 

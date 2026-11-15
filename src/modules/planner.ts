@@ -1,6 +1,6 @@
 // Planner (architecture.md §2; FR-004, FR-012, FR-014 plan update, D13).
 
-import { DomainError, NotImplementedError } from '../domain/errors';
+import { DomainError } from '../domain/errors';
 import type {
   Course, CourseId, PlannedCourse, PlannedTerm, PlanOfStudy, RegistrationData, StudentId, Term, TermCode,
 } from '../domain/types';
@@ -66,8 +66,23 @@ export class Planner {
    * Regenerates the not-yet-started terms after Course History changes, keeping MANUAL courses
    * unless they became invalid (FR-012, AC-021). Called by Registration Sync.
    */
-  async regenerate(_studentId: StudentId): Promise<PlanOfStudy> {
-    throw new NotImplementedError('Planner.regenerate');
+  async regenerate(studentId: StudentId): Promise<PlanOfStudy> {
+    const plan = await this.store.getPlan(studentId);
+    if (!plan) return this.getPlan(studentId);
+
+    const data = await this.store.getRegistrationData();
+    const future = new Set(this.futureTerms(data).map((t) => t.code));
+    const taken = new Set(data.courseHistory.filter((e) => e.studentId === studentId).map((e) => e.courseId));
+
+    // Terms that have started stay as they are. In the rest, MANUAL courses stay where the student put
+    // them unless they became invalid: the course is now completed or in progress (FR-012, AC-021).
+    const started = plan.terms.filter((t) => !future.has(t.term));
+    const fixed = plan.terms.filter((t) => future.has(t.term)).map((t) => ({
+      ...t,
+      courses: t.courses.filter((c) => c.placement === 'MANUAL' && !taken.has(c.courseId)),
+    }));
+    const regenerated = await this.generate(studentId, fixed);
+    return this.save({ ...regenerated, terms: [...started, ...regenerated.terms] });
   }
 
   /** Makes the plan for `term` match the enrolled courses (FR-014, AC-024). Called by Enrollment. */
