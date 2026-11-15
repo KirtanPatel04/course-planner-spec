@@ -20,8 +20,36 @@ interface ScheduleContext {
 /** A rule adds flags to the sections it applies to; flags[i] belongs to sections[i]. */
 type ScheduleRule = (ctx: ScheduleContext, flags: Flag[][]) => void;
 
+const minutes = (time: string): number => {
+  const [h, m] = time.split(':').map(Number);
+  return h * 60 + m;
+};
+
+/**
+ * TIME_CONFLICT (AC-004): two sections conflict when they share a day and their meeting times overlap.
+ * A meeting that ends exactly when the other starts does not overlap (test_plan.md G-1). Both sections
+ * are flagged, each naming the other.
+ */
+const timeConflict: ScheduleRule = ({ sections }, flags) => {
+  const overlaps = (a: CourseSection, b: CourseSection) => a.meetings.some((ma) => b.meetings.some((mb) =>
+    ma.days.some((d) => mb.days.includes(d))
+    && minutes(ma.start) < minutes(mb.end) && minutes(mb.start) < minutes(ma.end)));
+  sections.forEach((a, i) => {
+    if (!a) return;
+    const others = sections.filter((b, j): b is CourseSection => j !== i && b !== undefined && overlaps(a, b));
+    if (others.length) {
+      flags[i].push({
+        code: 'TIME_CONFLICT',
+        message: `Meets at the same time as ${others.map((b) => b.id).join(', ')}`,
+        relatedCourseIds: others.map((b) => b.courseId),
+        relatedSectionIds: others.map((b) => b.id),
+      });
+    }
+  });
+};
+
 /** FR-011's checks, one function per reason code. */
-const SCHEDULE_RULES: ScheduleRule[] = [];
+const SCHEDULE_RULES: ScheduleRule[] = [timeConflict];
 
 export interface ScheduleValidationInput {
   studentId: StudentId;

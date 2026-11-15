@@ -108,7 +108,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `Validator.validateSchedule` (part: `TIME_CONFLICT`).
 - **Depends on:** 2.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 4: Validation rule, prerequisites
 
