@@ -200,7 +200,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `DegreeAudit.getDegreeProgress`. Route: `GET /degree-progress`.
 - **Depends on:** 1.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 10: Plan generation
 
