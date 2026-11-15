@@ -398,7 +398,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `RegistrationSync.syncAll` and `refreshForStudent` (outage paths); `Validator.validateSchedule` (part: `verified = false`); `ScheduleManager.getSchedule` (`lastSyncedAt`, `canSubmit`) and `submit` (part: `REGISTRATION_UNAVAILABLE`); `PostgresDataStore.recordSyncFailure`.
 - **Depends on:** 13.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 23: Enrollment retries during an outage
 

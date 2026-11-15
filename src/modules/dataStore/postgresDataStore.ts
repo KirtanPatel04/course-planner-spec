@@ -9,16 +9,11 @@
 
 import { randomUUID } from 'node:crypto';
 import { Pool, PoolClient, QueryResultRow } from 'pg';
-import { NotImplementedError } from '../../domain/errors';
 import type { DataStore, ScheduleFilter, ScheduleRow } from './dataStore';
 import type {
   AdvisorDecision, EnrollmentRecord, ExceptionRequest, Instant, Job, JobKind, Notification,
   PlanOfStudy, RegistrationData, ScheduleId, ScheduleStatus, StatusChange, StudentId, SyncStatus,
 } from '../../domain/types';
-
-const ni = (name: string): never => {
-  throw new NotImplementedError(`DataStore.${name}`);
-};
 
 /** PostgreSQL error code for a unique-constraint violation. */
 const UNIQUE_VIOLATION = '23505';
@@ -176,7 +171,12 @@ export class PostgresDataStore implements DataStore {
     });
   }
 
-  recordSyncFailure(_at: Instant): Promise<void> { return ni('recordSyncFailure'); }
+  async recordSyncFailure(_at: Instant): Promise<void> {
+    // Only availability changes; the last successful sync time is kept (FR-018).
+    await (await this.db()).query(
+      `INSERT INTO sync_state (id, last_successful_sync_at, available) VALUES (1, NULL, false)
+       ON CONFLICT (id) DO UPDATE SET available = false`);
+  }
 
   async getSyncStatus(): Promise<SyncStatus> {
     const { rows } = await (await this.db()).query<{ last_successful_sync_at: string | null; available: boolean }>(
