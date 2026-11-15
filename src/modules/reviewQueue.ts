@@ -11,8 +11,24 @@ export class ReviewQueue {
    * The advisor's Submitted schedules (assigned students only): Needs Review first, then Routine,
    * oldest submission first within each group (AC-015).
    */
-  async getDashboard(_advisorId: AdvisorId): Promise<DashboardEntry[]> {
-    throw new NotImplementedError('ReviewQueue.getDashboard');
+  async getDashboard(advisorId: AdvisorId): Promise<DashboardEntry[]> {
+    const students = (await this.store.getRegistrationData()).students.filter((s) => s.advisorId === advisorId);
+    if (!students.length) return [];
+    const nameOf = new Map(students.map((s) => [s.id, s.name]));
+    const rows = await this.store.listSchedules({ studentIds: students.map((s) => s.id), statuses: ['SUBMITTED'] });
+    const group = (e: DashboardEntry) => (e.classification.label === 'NEEDS_REVIEW' ? 0 : 1);
+    return rows
+      .filter((r) => r.classification && r.submittedAt)
+      .map((r): DashboardEntry => ({
+        scheduleId: r.id,
+        studentId: r.studentId,
+        studentName: nameOf.get(r.studentId) ?? '',
+        term: r.term,
+        submittedAt: r.submittedAt!,
+        classification: r.classification!,
+      }))
+      // Needs Review first, then Routine; oldest submission first in each group (AC-015, architecture.md Spec issue 9).
+      .sort((a, b) => group(a) - group(b) || a.submittedAt.localeCompare(b.submittedAt) || a.scheduleId.localeCompare(b.scheduleId));
   }
 
   /**
