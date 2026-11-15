@@ -1,6 +1,5 @@
 // Registration Sync (architecture.md §2, §3.3, §3.4; FR-010, FR-018, NFR-003, D4, D5, D6).
 
-import { NotImplementedError } from '../domain/errors';
 import type { RegistrationData, StudentId, SyncReport, SyncStatus } from '../domain/types';
 import type { Clock } from '../shared/clock';
 import type { DataStore } from './dataStore/dataStore';
@@ -65,7 +64,7 @@ export class RegistrationSync {
 
   /** Last successful sync time and whether MavLINK is currently reachable (AC-031). */
   async getSyncStatus(): Promise<SyncStatus> {
-    throw new NotImplementedError('RegistrationSync.getSyncStatus');
+    return this.store.getSyncStatus();
   }
 }
 

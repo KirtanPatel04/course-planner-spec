@@ -186,7 +186,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
   - Route: `GET /sync-status`
 - **Depends on:** 1.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 9: Degree progress
 
