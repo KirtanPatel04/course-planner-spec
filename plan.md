@@ -123,7 +123,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `Validator.validateSchedule` (part: `MISSING_PREREQUISITE`).
 - **Depends on:** 2.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 5: Validation rule, credit-hour limit
 
