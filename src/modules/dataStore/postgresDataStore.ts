@@ -48,6 +48,9 @@ const DDL = `
     created_at text NOT NULL,
     data jsonb NOT NULL
   );
+  -- One Submitted-or-later schedule per student per Term (Draft Schedule; AC-014, D8).
+  CREATE UNIQUE INDEX IF NOT EXISTS one_active_schedule_per_term ON schedules (student_id, term)
+    WHERE status IN ('SUBMITTED', 'APPROVED', 'ENROLLED', 'PARTIALLY_ENROLLED');
   CREATE TABLE IF NOT EXISTS status_changes (
     seq bigserial PRIMARY KEY,
     schedule_id text NOT NULL,

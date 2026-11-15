@@ -15,6 +15,11 @@ import type { Validator } from './validator';
 
 /** Returned behaves like Draft: both are editable (Draft Schedule statuses). */
 const EDITABLE: ScheduleStatus[] = ['DRAFT', 'RETURNED'];
+/** "Submitted, Approved, or later": at most one per student per Term (Draft Schedule, AC-014). */
+const ACTIVE: ScheduleStatus[] = ['SUBMITTED', 'APPROVED', 'ENROLLED', 'PARTIALLY_ENROLLED'];
+
+const activeSubmissionExists = () => new DomainError('ACTIVE_SUBMISSION_EXISTS',
+  'You already have a submitted schedule for this term. Withdraw it before submitting another one.');
 
 export class ScheduleManager {
   constructor(
@@ -154,6 +159,9 @@ export class ScheduleManager {
   async submit(scheduleId: ScheduleId, actor: Actor): Promise<ScheduleView> {
     const row = await this.requireRow(scheduleId);
     if (!EDITABLE.includes(row.status)) throw new DomainError('INVALID_STATE', 'Only a Draft or Returned schedule can be submitted');
+    if ((await this.store.listSchedules({ studentId: row.studentId, term: row.term, statuses: ACTIVE })).some((s) => s.id !== scheduleId)) {
+      throw activeSubmissionExists();
+    }
 
     const validationResults = await this.validator.validateSchedule({ studentId: row.studentId, term: row.term, sectionIds: row.sectionIds });
     const exceptionRequests = await this.store.listExceptionRequests(scheduleId);
@@ -165,7 +173,11 @@ export class ScheduleManager {
     const submitted = await this.store.transaction((tx) => tx.updateScheduleStatus(
       scheduleId, row.status, { validationResults, classification, submittedAt: now },
       { scheduleId, from: row.status, to: 'SUBMITTED', actor, at: now }));
-    if (!submitted) throw new DomainError('INVALID_STATE', 'Only a Draft or Returned schedule can be submitted');
+    if (!submitted) {
+      // Either the status changed under us, or a racing submission for the same Term won the unique index.
+      const now = await this.requireRow(scheduleId);
+      throw EDITABLE.includes(now.status) ? activeSubmissionExists() : new DomainError('INVALID_STATE', 'Only a Draft or Returned schedule can be submitted');
+    }
 
     const { student, termName } = await this.describe(row);
     if (student) {

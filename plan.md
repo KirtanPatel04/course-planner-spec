@@ -315,7 +315,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `ScheduleManager.submit` (part: `ACTIVE_SUBMISSION_EXISTS`); `PostgresDataStore` partial unique index behind `updateScheduleStatus`.
 - **Depends on:** 13, 15.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 17: Exception requests
 
