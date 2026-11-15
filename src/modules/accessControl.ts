@@ -2,7 +2,7 @@
 // Decides whether a user may perform an action on a student's data, using the student IDs
 // and advisor assignments in the registration snapshot. Approve and Return are advisor-only.
 
-import { NotImplementedError } from '../domain/errors';
+import { DomainError, NotImplementedError } from '../domain/errors';
 import type { Action, Actor, AdvisorId, ScheduleId, StudentId, UserId } from '../domain/types';
 import type { DataStore } from './dataStore/dataStore';
 
@@ -13,8 +13,13 @@ export class AccessControl {
    * Turns the SSO user ID into a Student or Advisor actor using MavLINK data (D1).
    * @throws DomainError UNAUTHENTICATED if userId is missing or is neither a student nor an advisor.
    */
-  async resolveActor(_userId: UserId | undefined): Promise<Actor> {
-    throw new NotImplementedError('AccessControl.resolveActor');
+  async resolveActor(userId: UserId | undefined): Promise<Actor> {
+    if (userId) {
+      const data = await this.store.getRegistrationData();
+      if (data.students.some((s) => s.id === userId)) return { kind: 'STUDENT', id: userId };
+      if (data.advisors.some((a) => a.id === userId)) return { kind: 'ADVISOR', id: userId };
+    }
+    throw new DomainError('UNAUTHENTICATED', 'Sign in with a UNO account to use the Course Planner');
   }
 
   /**
@@ -22,16 +27,18 @@ export class AccessControl {
    * (search, drafts, plan, degree progress).
    * @throws DomainError FORBIDDEN if the actor is not a student.
    */
-  async requireStudent(_actor: Actor): Promise<StudentId> {
-    throw new NotImplementedError('AccessControl.requireStudent');
+  async requireStudent(actor: Actor): Promise<StudentId> {
+    if (actor.kind !== 'STUDENT') throw new DomainError('FORBIDDEN', 'Only students can do this');
+    return actor.id;
   }
 
   /**
    * Returns the actor's advisor ID, for advisor-only routes (dashboard, review view).
    * @throws DomainError FORBIDDEN if the actor is not an advisor.
    */
-  async requireAdvisor(_actor: Actor): Promise<AdvisorId> {
-    throw new NotImplementedError('AccessControl.requireAdvisor');
+  async requireAdvisor(actor: Actor): Promise<AdvisorId> {
+    if (actor.kind !== 'ADVISOR') throw new DomainError('FORBIDDEN', 'Only advisors can do this');
+    return actor.id;
   }
 
   /**

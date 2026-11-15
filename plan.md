@@ -63,7 +63,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
   - Route: `GET /sections`
 - **Depends on:** none. **Blocked by Design question 1.**
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 2: Draft schedules and ownership
 
