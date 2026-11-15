@@ -438,7 +438,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `Planner.regenerate`; `RegistrationSync.syncAll` (part: pass history changes to Planner).
 - **Depends on:** 11, 24 (both change `syncAll`'s change handling; doing them in sequence avoids conflicting edits).
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ---
 
