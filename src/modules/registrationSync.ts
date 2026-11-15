@@ -1,5 +1,6 @@
 // Registration Sync (architecture.md §2, §3.3, §3.4; FR-010, FR-018, NFR-003, D4, D5, D6).
 
+import { RegistrationUnavailableError } from '../domain/errors';
 import type { RegistrationData, StudentId, SyncReport, SyncStatus } from '../domain/types';
 import type { Clock } from '../shared/clock';
 import type { DataStore } from './dataStore/dataStore';
@@ -23,7 +24,10 @@ export class RegistrationSync {
    */
   async syncAll(): Promise<SyncReport> {
     const syncedAt = this.clock.now().toISOString();
-    const fresh = await this.gateway.fetchRegistrationData();
+    const fresh = await this.fetch(undefined, syncedAt);
+    if (!fresh) {
+      return { succeeded: false, syncedAt, changedSectionIds: [], changedHoldStudentIds: [], changedHistoryStudentIds: [] };
+    }
     const before = await this.store.getSyncStatus();
     const previous = await this.store.getRegistrationData();
     // The first successful sync sets the baseline: with nothing to compare against, it reports no
@@ -40,7 +44,8 @@ export class RegistrationSync {
    * or edit). On an outage, leaves the snapshot as is (results become Unverified). Never throws for an outage.
    */
   async refreshForStudent(studentId: StudentId): Promise<SyncStatus> {
-    const fresh = await this.gateway.fetchRegistrationData({ studentId });
+    const fresh = await this.fetch(studentId, this.clock.now().toISOString());
+    if (!fresh) return this.store.getSyncStatus(); // the snapshot is used as is; results are Unverified
     const snapshot = await this.store.getRegistrationData();
     const status = await this.store.getSyncStatus();
 
@@ -65,6 +70,17 @@ export class RegistrationSync {
   /** Last successful sync time and whether MavLINK is currently reachable (AC-031). */
   async getSyncStatus(): Promise<SyncStatus> {
     return this.store.getSyncStatus();
+  }
+
+  /** Fetches from MavLINK; on an outage records it (keeping the last successful sync time) and returns null (FR-018). */
+  private async fetch(studentId: StudentId | undefined, at: string): Promise<RegistrationData | null> {
+    try {
+      return await this.gateway.fetchRegistrationData(studentId === undefined ? undefined : { studentId });
+    } catch (err) {
+      if (!(err instanceof RegistrationUnavailableError)) throw err;
+      await this.store.recordSyncFailure(at);
+      return null;
+    }
   }
 }
 

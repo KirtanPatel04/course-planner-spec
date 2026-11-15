@@ -174,6 +174,9 @@ export class ScheduleManager {
   async submit(scheduleId: ScheduleId, actor: Actor): Promise<ScheduleView> {
     const row = await this.requireRow(scheduleId);
     if (!EDITABLE.includes(row.status)) throw new DomainError('INVALID_STATE', 'Only a Draft or Returned schedule can be submitted');
+    if (!(await this.store.getSyncStatus()).available) {
+      throw new DomainError('REGISTRATION_UNAVAILABLE', 'The registration system cannot be reached. Submit again after it reconnects.');
+    }
     if ((await this.store.listSchedules({ studentId: row.studentId, term: row.term, statuses: ACTIVE })).some((s) => s.id !== scheduleId)) {
       throw activeSubmissionExists();
     }
