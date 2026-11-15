@@ -152,7 +152,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `Validator.validateSchedule` (parts: `MISSING_COREQUISITE`, `BLOCKING_HOLD`).
 - **Depends on:** 2.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 7: Validation rules, section status, and refresh on open
 

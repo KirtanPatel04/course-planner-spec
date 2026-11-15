@@ -85,8 +85,33 @@ const creditLimit: ScheduleRule = ({ data, studentId, sections, courses }, flags
   });
 };
 
+/**
+ * MISSING_COREQUISITE (X-24): a co-requisite is satisfied by a section of that course in the same
+ * schedule, or by the course being taken before the term, as for prerequisites (test_plan.md G-3).
+ */
+const missingCorequisite: ScheduleRule = ({ data, studentId, term, sections, courses }, flags) => {
+  const inSchedule = new Set(sections.map((s) => s?.courseId));
+  sections.forEach((s, i) => {
+    const missing = (s ? courses.get(s.courseId)?.corequisites ?? [] : [])
+      .filter((c) => !inSchedule.has(c) && !takenBefore(data, studentId, c, term));
+    if (missing.length) {
+      flags[i].push({ code: 'MISSING_COREQUISITE', message: `Must be taken with ${missing.join(', ')}`, relatedCourseIds: missing, relatedSectionIds: [] });
+    }
+  });
+};
+
+/** BLOCKING_HOLD (AC-008): every section is flagged once per blocking hold, with the hold type MavLINK reports. */
+const blockingHold: ScheduleRule = ({ data, studentId, sections }, flags) => {
+  const holds = data.holds.filter((h) => h.studentId === studentId && h.blocking);
+  sections.forEach((_s, i) => {
+    for (const hold of holds) {
+      flags[i].push({ code: 'BLOCKING_HOLD', message: `${hold.type} hold blocks registration`, relatedCourseIds: [], relatedSectionIds: [], holdType: hold.type });
+    }
+  });
+};
+
 /** FR-011's checks, one function per reason code. */
-const SCHEDULE_RULES: ScheduleRule[] = [timeConflict, missingPrerequisite, creditLimit];
+const SCHEDULE_RULES: ScheduleRule[] = [timeConflict, missingPrerequisite, missingCorequisite, creditLimit, blockingHold];
 
 export interface ScheduleValidationInput {
   studentId: StudentId;
