@@ -179,8 +179,14 @@ export class ScheduleManager {
    * Submitted → Draft (FR-017, AC-029).
    * @throws DomainError INVALID_STATE from any other status (AC-030), including after a racing approval.
    */
-  async withdraw(_scheduleId: ScheduleId, _actor: Actor): Promise<ScheduleView> {
-    throw new NotImplementedError('ScheduleManager.withdraw');
+  async withdraw(scheduleId: ScheduleId, actor: Actor): Promise<ScheduleView> {
+    await this.requireRow(scheduleId);
+    // Conditional on Submitted, so a withdraw that loses a race with an approval changes nothing (NFR-002).
+    const withdrawn = await this.store.transaction((tx) => tx.updateScheduleStatus(
+      scheduleId, 'SUBMITTED', { classification: null, submittedAt: null },
+      { scheduleId, from: 'SUBMITTED', to: 'DRAFT', actor, at: this.now() }));
+    if (!withdrawn) throw new DomainError('INVALID_STATE', 'Only a Submitted schedule can be withdrawn');
+    return this.getSchedule(scheduleId);
   }
 
   /**
