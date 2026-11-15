@@ -110,8 +110,22 @@ const blockingHold: ScheduleRule = ({ data, studentId, sections }, flags) => {
   });
 };
 
+/**
+ * SECTION_FULL and SECTION_CANCELLED (X-26, X-27, AC-019): taken from the status MavLINK reports,
+ * the system of record (plan.md Design question 6).
+ */
+const sectionStatus: ScheduleRule = ({ sections }, flags) => {
+  sections.forEach((s, i) => {
+    if (s?.status === 'FULL') {
+      flags[i].push({ code: 'SECTION_FULL', message: `${s.id} is full`, relatedCourseIds: [], relatedSectionIds: [] });
+    } else if (s?.status === 'CANCELLED') {
+      flags[i].push({ code: 'SECTION_CANCELLED', message: `${s.id} was cancelled`, relatedCourseIds: [], relatedSectionIds: [] });
+    }
+  });
+};
+
 /** FR-011's checks, one function per reason code. */
-const SCHEDULE_RULES: ScheduleRule[] = [timeConflict, missingPrerequisite, missingCorequisite, creditLimit, blockingHold];
+const SCHEDULE_RULES: ScheduleRule[] = [timeConflict, missingPrerequisite, missingCorequisite, creditLimit, blockingHold, sectionStatus];
 
 export interface ScheduleValidationInput {
   studentId: StudentId;
