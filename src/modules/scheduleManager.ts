@@ -216,8 +216,27 @@ export class ScheduleManager {
    * Submitted → Returned with the comment; records the Advisor Decision and notifies the student (AC-017).
    * @throws DomainError COMMENT_REQUIRED if comment is missing or empty, INVALID_STATE from any other status.
    */
-  async returnSchedule(_scheduleId: ScheduleId, _comment: string, _actor: Actor): Promise<ScheduleView> {
-    throw new NotImplementedError('ScheduleManager.returnSchedule');
+  async returnSchedule(scheduleId: ScheduleId, comment: string, actor: Actor): Promise<ScheduleView> {
+    // A Return always includes a comment (Advisor Decision). Only spaces counts as empty (test_plan.md G-12).
+    if (typeof comment !== 'string' || !comment.trim()) throw new DomainError('COMMENT_REQUIRED', 'Enter a comment for the student');
+    const row = await this.requireRow(scheduleId);
+    if (row.status !== 'SUBMITTED') throw new DomainError('INVALID_STATE', 'Only a Submitted schedule can be returned');
+
+    const now = this.now();
+    const returned = await this.store.transaction(async (tx) => {
+      if (!await tx.updateScheduleStatus(scheduleId, 'SUBMITTED', { returnComment: comment },
+        { scheduleId, from: 'SUBMITTED', to: 'RETURNED', actor, at: now, comment })) {
+        return false;
+      }
+      await tx.insertAdvisorDecision({ scheduleId, advisorId: actor.kind === 'ADVISOR' ? actor.id : '', decision: 'RETURN', comment, decidedAt: now });
+      return true;
+    });
+    if (!returned) throw new DomainError('INVALID_STATE', 'Only a Submitted schedule can be returned');
+
+    const { termName } = await this.describe(row);
+    await this.notifier.notify(row.studentId, 'SCHEDULE_RETURNED', scheduleId,
+      `Your ${termName} schedule "${row.name}" was returned by your advisor: ${comment}`);
+    return this.getSchedule(scheduleId);
   }
 
   /**

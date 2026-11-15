@@ -286,7 +286,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `ScheduleManager.returnSchedule`; `AccessControl.authorizeSchedule` (advisor `RETURN`). Route: `POST /schedules/:id/return`.
 - **Depends on:** 13.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 15: Withdraw
 
