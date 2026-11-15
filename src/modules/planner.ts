@@ -71,8 +71,16 @@ export class Planner {
   }
 
   /** Makes the plan for `term` match the enrolled courses (FR-014, AC-024). Called by Enrollment. */
-  async applyEnrollment(_studentId: StudentId, _term: TermCode, _enrolledCourseIds: CourseId[]): Promise<PlanOfStudy> {
-    throw new NotImplementedError('Planner.applyEnrollment');
+  async applyEnrollment(studentId: StudentId, term: TermCode, enrolledCourseIds: CourseId[]): Promise<PlanOfStudy> {
+    const plan = await this.getPlan(studentId);
+    const enrolled = new Set(enrolledCourseIds);
+    // The enrolled courses leave every other term; the term holds exactly what was enrolled.
+    const terms = plan.terms.map((t) => ({ ...t, courses: t.courses.filter((c) => !enrolled.has(c.courseId)) }));
+    const courses: PlannedCourse[] = enrolledCourseIds.map((courseId) => ({ courseId, placement: 'MANUAL', flags: [] }));
+    const target = terms.find((t) => t.term === term);
+    if (target) target.courses = courses;
+    else terms.unshift({ term, courses });
+    return this.save({ ...plan, terms, updatedAt: this.clock.now().toISOString() });
   }
 
   /** Terms in the snapshot that have not started yet, in date order (plan.md Design question 7). */
