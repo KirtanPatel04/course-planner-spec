@@ -30,7 +30,13 @@ export class Enrollment {
    * advisor once 24 hours have passed since the first attempt (AC-032).
    */
   async processEnrollmentJob(job: Job): Promise<EnrollmentJobOutcome> {
-    const schedule = (await this.store.getSchedule(job.key))!;
+    const schedule = await this.store.getSchedule(job.key);
+    // Checked before every attempt, including retries: a schedule that was returned (AC-026) or
+    // withdrawn is never enrolled (D9).
+    if (schedule?.status !== 'APPROVED') {
+      await this.store.deleteJob(job.id);
+      return 'CANCELLED';
+    }
     const now = this.clock.now();
     const firstAttemptAt = job.firstAttemptAt ?? now.toISOString();
 

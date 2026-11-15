@@ -36,6 +36,8 @@ export class RegistrationSync {
       ? { succeeded: true, syncedAt, changedSectionIds: [], changedHoldStudentIds: [], changedHistoryStudentIds: [] }
       : { succeeded: true, syncedAt, ...diff(previous, fresh) };
     await this.store.saveRegistrationData(fresh, syncedAt);
+    // FR-015: changed sections, holds and histories go to Revalidator (D6).
+    await this.revalidator.revalidate(report);
     return report;
   }
 
