@@ -60,6 +60,10 @@ const DDL = `
     schedule_id text NOT NULL,
     data jsonb NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS plans (
+    student_id text PRIMARY KEY,
+    data jsonb NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS jobs (
     id text PRIMARY KEY,
     kind text NOT NULL,
@@ -228,8 +232,16 @@ export class PostgresDataStore implements DataStore {
 
   // ----- plans -----
 
-  getPlan(_studentId: StudentId): Promise<PlanOfStudy | null> { return ni('getPlan'); }
-  savePlan(_plan: PlanOfStudy): Promise<void> { return ni('savePlan'); }
+  async getPlan(studentId: StudentId): Promise<PlanOfStudy | null> {
+    const { rows } = await (await this.db()).query<{ data: PlanOfStudy }>('SELECT data FROM plans WHERE student_id = $1', [studentId]);
+    return rows[0]?.data ?? null;
+  }
+
+  async savePlan(plan: PlanOfStudy): Promise<void> {
+    await (await this.db()).query(
+      `INSERT INTO plans (student_id, data) VALUES ($1, $2)
+       ON CONFLICT (student_id) DO UPDATE SET data = EXCLUDED.data`, [plan.studentId, JSON.stringify(plan)]);
+  }
 
   // ----- enrollment -----
 
