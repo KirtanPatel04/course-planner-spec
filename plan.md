@@ -225,7 +225,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `Planner.moveCourse`, `Validator.validatePlan`. Route: `PUT /plan/courses/:courseId`.
 - **Depends on:** 10.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 12: Submission classification
 

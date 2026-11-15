@@ -1,7 +1,6 @@
 // Validator (architecture.md §2; FR-003, FR-011, FR-012/AC-011).
 // Produces Pass or Flag with reason codes per section, from snapshot data. No side effects.
 
-import { NotImplementedError } from '../domain/errors';
 import type {
   Course, CourseId, CourseSection, Flag, PlanOfStudy, RegistrationData, SectionId, StudentId, Term, TermCode,
   ValidationResult,
@@ -168,7 +167,40 @@ export class Validator {
    * Returns a copy of the plan with flags on each planned course (prerequisite order,
    * offering pattern, credit limit per term). Used by Planner (AC-011).
    */
-  async validatePlan(_plan: PlanOfStudy): Promise<PlanOfStudy> {
-    throw new NotImplementedError('Validator.validatePlan');
+  async validatePlan(plan: PlanOfStudy): Promise<PlanOfStudy> {
+    const data = await this.store.getRegistrationData();
+    const courses = new Map(data.courses.map((c) => [c.id, c]));
+    const programId = data.students.find((s) => s.id === plan.studentId)?.programId ?? plan.programId;
+    const limit = data.programs.find((p) => p.id === programId)?.maxCreditHoursPerTerm ?? Infinity;
+    const startOf = (code: TermCode) => data.terms.find((t) => t.code === code)?.startDate ?? '9999-12-31';
+    const termOf = new Map(plan.terms.flatMap((t) => t.courses.map((c) => [c.courseId, t.term] as const)));
+
+    return {
+      ...plan,
+      terms: plan.terms.map((t) => {
+        const term = data.terms.find((x) => x.code === t.term);
+        let total = 0;
+        return {
+          ...t,
+          courses: t.courses.map((c) => {
+            const flags: Flag[] = [];
+            // A prerequisite counts when planned in an earlier term or taken before this one (AC-011).
+            const missing = (courses.get(c.courseId)?.prerequisites ?? []).filter((p) => {
+              const plannedIn = termOf.get(p);
+              return !(plannedIn !== undefined && startOf(plannedIn) < startOf(t.term)) && !takenBefore(data, plan.studentId, p, term);
+            });
+            if (missing.length) {
+              flags.push({ code: 'MISSING_PREREQUISITE', message: `Requires ${missing.join(', ')} in an earlier term`, relatedCourseIds: missing, relatedSectionIds: [] });
+            }
+            total += courses.get(c.courseId)?.creditHours ?? 0;
+            if (total > limit) {
+              flags.push({ code: 'CREDIT_LIMIT_EXCEEDED', message: `Brings ${t.term} to ${total} credit hours; the limit is ${limit}`, relatedCourseIds: [], relatedSectionIds: [] });
+            }
+            // No reason code exists for an offering-pattern violation, so none is flagged (plan.md Design question 8).
+            return { ...c, flags };
+          }),
+        };
+      }),
+    };
   }
 }
