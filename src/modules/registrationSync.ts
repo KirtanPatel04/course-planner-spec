@@ -40,8 +40,27 @@ export class RegistrationSync {
    * Refreshes the sections, holds, and course history one student's schedules use (FR-010, on open
    * or edit). On an outage, leaves the snapshot as is (results become Unverified). Never throws for an outage.
    */
-  async refreshForStudent(_studentId: StudentId): Promise<SyncStatus> {
-    throw new NotImplementedError('RegistrationSync.refreshForStudent');
+  async refreshForStudent(studentId: StudentId): Promise<SyncStatus> {
+    const fresh = await this.gateway.fetchRegistrationData({ studentId });
+    const snapshot = await this.store.getRegistrationData();
+    const status = await this.store.getSyncStatus();
+
+    // Replace only what this student's schedules use: their sections, holds, and course history.
+    const used = new Set((await this.store.listSchedules({ studentId })).flatMap((s) => s.sectionIds));
+    const freshSections = new Map(fresh.sections.filter((s) => used.has(s.id)).map((s) => [s.id, s]));
+    const merged: RegistrationData = {
+      ...snapshot,
+      sections: snapshot.sections.map((s) => freshSections.get(s.id) ?? s),
+      holds: [...snapshot.holds.filter((h) => h.studentId !== studentId), ...fresh.holds.filter((h) => h.studentId === studentId)],
+      courseHistory: [
+        ...snapshot.courseHistory.filter((e) => e.studentId !== studentId),
+        ...fresh.courseHistory.filter((e) => e.studentId === studentId),
+      ],
+    };
+    // A partial refresh marks MavLINK reachable but keeps the last full sync time, so the hourly
+    // full sync (AC-020) is not pushed back by students opening schedules (plan.md Design question 3).
+    await this.store.saveRegistrationData(merged, status.lastSuccessfulSyncAt ?? this.clock.now().toISOString());
+    return this.store.getSyncStatus();
   }
 
   /** Last successful sync time and whether MavLINK is currently reachable (AC-031). */

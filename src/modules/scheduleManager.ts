@@ -2,15 +2,19 @@
 // NFR-002, NFR-007, D8, D9). Owns Draft Schedule contents and applies every status transition,
 // recording each one in the schedule history. Authorization is done by the caller (API → Access Control).
 
-import { NotImplementedError } from '../domain/errors';
+import { randomUUID } from 'node:crypto';
+import { DomainError, NotImplementedError } from '../domain/errors';
 import type {
-  Actor, ReasonCode, ScheduleId, ScheduleSummary, ScheduleView, SectionId, StudentId, TermCode,
+  Actor, ReasonCode, ScheduleId, ScheduleStatus, ScheduleSummary, ScheduleView, SectionId, StudentId, TermCode,
 } from '../domain/types';
 import type { Clock } from '../shared/clock';
 import type { Classifier } from './classifier';
-import type { DataStore } from './dataStore/dataStore';
+import type { DataStore, ScheduleRow } from './dataStore/dataStore';
 import type { Notifier } from './notifier';
 import type { Validator } from './validator';
+
+/** Returned behaves like Draft: both are editable (Draft Schedule statuses). */
+const EDITABLE: ScheduleStatus[] = ['DRAFT', 'RETURNED'];
 
 export class ScheduleManager {
   constructor(
@@ -21,22 +25,67 @@ export class ScheduleManager {
     private readonly clock: Clock,
   ) {}
 
+  private now(): string {
+    return this.clock.now().toISOString();
+  }
+
   /**
    * Creates an empty Draft schedule for a Term. A student may have several Drafts per Term.
    * @throws DomainError INVALID_INPUT if the term is unknown.
    */
-  async createDraft(_studentId: StudentId, _term: TermCode, _name?: string): Promise<ScheduleView> {
-    throw new NotImplementedError('ScheduleManager.createDraft');
+  async createDraft(studentId: StudentId, term: TermCode, name?: string): Promise<ScheduleView> {
+    const data = await this.store.getRegistrationData();
+    const known = data.terms.find((t) => t.code === term);
+    if (typeof term !== 'string' || !known) throw new DomainError('INVALID_INPUT', 'Unknown term');
+    const now = this.now();
+    const row: ScheduleRow = {
+      id: randomUUID(),
+      studentId,
+      term,
+      name: typeof name === 'string' && name.trim() ? name.trim() : `${known.name} draft`,
+      status: 'DRAFT',
+      sectionIds: [],
+      validationResults: [],
+      classification: null,
+      returnComment: null,
+      submittedAt: null,
+      createdAt: now,
+    };
+    await this.store.insertSchedule(row, { scheduleId: row.id, from: null, to: 'DRAFT', actor: { kind: 'STUDENT', id: studentId }, at: now });
+    return this.getSchedule(row.id);
   }
 
   /** The student's schedules, optionally for one Term. */
-  async listSchedules(_studentId: StudentId, _term?: TermCode): Promise<ScheduleSummary[]> {
-    throw new NotImplementedError('ScheduleManager.listSchedules');
+  async listSchedules(studentId: StudentId, term?: TermCode): Promise<ScheduleSummary[]> {
+    const rows = await this.store.listSchedules(term === undefined ? { studentId } : { studentId, term });
+    return rows.map(({ id, term: t, name, status }) => ({ id, term: t, name, status }));
   }
 
   /** The schedule with fresh Validation Results for every section, history, and sync state. */
-  async getSchedule(_scheduleId: ScheduleId): Promise<ScheduleView> {
-    throw new NotImplementedError('ScheduleManager.getSchedule');
+  async getSchedule(scheduleId: ScheduleId): Promise<ScheduleView> {
+    const row = await this.store.getSchedule(scheduleId);
+    if (!row) throw new DomainError('NOT_FOUND', 'Schedule not found');
+    const data = await this.store.getRegistrationData();
+    const sync = await this.store.getSyncStatus();
+    const credits = new Map(data.courses.map((c) => [c.id, c.creditHours]));
+    const courseOf = new Map(data.sections.map((s) => [s.id, s.courseId]));
+    return {
+      id: row.id,
+      studentId: row.studentId,
+      term: row.term,
+      name: row.name,
+      status: row.status,
+      sectionIds: row.sectionIds,
+      totalCreditHours: row.sectionIds.reduce((sum, id) => sum + (credits.get(courseOf.get(id) ?? '') ?? 0), 0),
+      validationResults: await this.validator.validateSchedule({ studentId: row.studentId, term: row.term, sectionIds: row.sectionIds }),
+      exceptionRequests: await this.store.listExceptionRequests(row.id),
+      classification: row.classification,
+      returnComment: row.returnComment,
+      enrollmentRecords: await this.store.listEnrollmentRecords(row.id),
+      history: await this.store.listStatusChanges(row.id),
+      lastSyncedAt: sync.lastSuccessfulSyncAt,
+      canSubmit: sync.available,
+    };
   }
 
   /**
@@ -45,8 +94,21 @@ export class ScheduleManager {
    * @throws DomainError INVALID_INPUT (unknown section or already in the schedule),
    *         SECTION_TERM_MISMATCH, INVALID_STATE unless status is Draft or Returned.
    */
-  async addSection(_scheduleId: ScheduleId, _sectionId: SectionId): Promise<ScheduleView> {
-    throw new NotImplementedError('ScheduleManager.addSection');
+  async addSection(scheduleId: ScheduleId, sectionId: SectionId): Promise<ScheduleView> {
+    const row = await this.store.getSchedule(scheduleId);
+    if (!row) throw new DomainError('NOT_FOUND', 'Schedule not found');
+    const section = (await this.store.getRegistrationData()).sections.find((s) => s.id === sectionId);
+    if (typeof sectionId !== 'string' || !section) throw new DomainError('INVALID_INPUT', 'Unknown section');
+    if (row.sectionIds.includes(sectionId)) throw new DomainError('INVALID_INPUT', 'The section is already in this schedule');
+    if (section.term !== row.term) throw new DomainError('SECTION_TERM_MISMATCH', 'The section is not offered in this schedule\'s term');
+
+    const sectionIds = [...row.sectionIds, sectionId];
+    // Flagged sections are still added; the results are returned with the schedule (FR-003).
+    const validationResults = await this.validator.validateSchedule({ studentId: row.studentId, term: row.term, sectionIds });
+    if (!await this.store.updateScheduleContents(scheduleId, EDITABLE, { sectionIds, validationResults })) {
+      throw new DomainError('INVALID_STATE', 'Only Draft or Returned schedules can be edited');
+    }
+    return this.getSchedule(scheduleId);
   }
 
   /**

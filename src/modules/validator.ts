@@ -2,8 +2,26 @@
 // Produces Pass or Flag with reason codes per section, from snapshot data. No side effects.
 
 import { NotImplementedError } from '../domain/errors';
-import type { PlanOfStudy, SectionId, StudentId, TermCode, ValidationResult } from '../domain/types';
+import type {
+  Course, CourseId, CourseSection, Flag, PlanOfStudy, RegistrationData, SectionId, StudentId, Term, TermCode,
+  ValidationResult,
+} from '../domain/types';
 import type { DataStore } from './dataStore/dataStore';
+
+interface ScheduleContext {
+  data: RegistrationData;
+  studentId: StudentId;
+  term: Term | undefined;
+  /** The schedule's sections in input order (undefined if unknown to the snapshot). */
+  sections: (CourseSection | undefined)[];
+  courses: Map<CourseId, Course>;
+}
+
+/** A rule adds flags to the sections it applies to; flags[i] belongs to sections[i]. */
+type ScheduleRule = (ctx: ScheduleContext, flags: Flag[][]) => void;
+
+/** FR-011's checks, one function per reason code. */
+const SCHEDULE_RULES: ScheduleRule[] = [];
 
 export interface ScheduleValidationInput {
   studentId: StudentId;
@@ -20,8 +38,26 @@ export class Validator {
    * SECTION_FULL, SECTION_CANCELLED. Every result carries the snapshot time (dataAsOf) and
    * verified=false while MavLINK is unreachable (FR-018). Never throws for flagged input.
    */
-  async validateSchedule(_input: ScheduleValidationInput): Promise<ValidationResult[]> {
-    throw new NotImplementedError('Validator.validateSchedule');
+  async validateSchedule(input: ScheduleValidationInput): Promise<ValidationResult[]> {
+    const data = await this.store.getRegistrationData();
+    const sync = await this.store.getSyncStatus();
+    const ctx: ScheduleContext = {
+      data,
+      studentId: input.studentId,
+      term: data.terms.find((t) => t.code === input.term),
+      sections: input.sectionIds.map((id) => data.sections.find((s) => s.id === id)),
+      courses: new Map(data.courses.map((c) => [c.id, c])),
+    };
+    const flags: Flag[][] = input.sectionIds.map(() => []);
+    for (const rule of SCHEDULE_RULES) rule(ctx, flags);
+    return input.sectionIds.map((sectionId, i) => ({
+      sectionId,
+      outcome: flags[i].length ? 'FLAG' : 'PASS',
+      flags: flags[i],
+      // The time of the snapshot the result was based on (NFR-003).
+      dataAsOf: sync.lastSuccessfulSyncAt ?? '',
+      verified: sync.available,
+    }));
   }
 
   /**

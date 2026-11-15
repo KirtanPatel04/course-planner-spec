@@ -94,7 +94,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
   - Routes: `POST /schedules`, `GET /schedules`, `GET /schedules/:id`, `POST /schedules/:id/sections`
 - **Depends on:** 1.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 3: Validation rule, time conflicts
 

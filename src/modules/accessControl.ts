@@ -6,6 +6,9 @@ import { DomainError, NotImplementedError } from '../domain/errors';
 import type { Action, Actor, AdvisorId, ScheduleId, StudentId, UserId } from '../domain/types';
 import type { DataStore } from './dataStore/dataStore';
 
+/** What a student may do to their own schedules (FR-019). Approve and Return are advisor-only. */
+const STUDENT_ACTIONS: Action[] = ['VIEW', 'EDIT', 'SUBMIT', 'WITHDRAW'];
+
 export class AccessControl {
   constructor(private readonly store: DataStore) {}
 
@@ -49,7 +52,17 @@ export class AccessControl {
    *         (identical responses, so existence is not revealed, NFR-001, AC-033),
    *         FORBIDDEN if the actor may view it but not perform `action` (student S approving, AC-034).
    */
-  async authorizeSchedule(_actor: Actor, _action: Action, _scheduleId: ScheduleId): Promise<StudentId> {
-    throw new NotImplementedError('AccessControl.authorizeSchedule');
+  async authorizeSchedule(actor: Actor, action: Action, scheduleId: ScheduleId): Promise<StudentId> {
+    // One generic answer for "missing" and "not yours", so a request cannot reveal that a schedule exists.
+    const notFound = () => new DomainError('NOT_FOUND', 'Schedule not found');
+    const schedule = await this.store.getSchedule(scheduleId);
+    if (!schedule) throw notFound();
+
+    if (actor.kind === 'STUDENT') {
+      if (schedule.studentId !== actor.id) throw notFound();
+      if (!STUDENT_ACTIONS.includes(action)) throw new DomainError('FORBIDDEN', 'Students cannot perform this action');
+      return schedule.studentId;
+    }
+    throw new NotImplementedError('AccessControl.authorizeSchedule (advisor actions)');
   }
 }
