@@ -1,7 +1,7 @@
 // Notifier (architecture.md §2; FR-006, FR-014, FR-015, FR-018, NFR-009, D11).
 // Stores in-app Notifications and sends the matching email through the university mail service.
 
-import { NotImplementedError } from '../domain/errors';
+import { randomUUID } from 'node:crypto';
 import type { Notification, NotificationEvent, ScheduleId, UserId } from '../domain/types';
 import type { Clock } from '../shared/clock';
 import type { DataStore } from './dataStore/dataStore';
@@ -27,13 +27,23 @@ export class Notifier {
   ) {}
 
   /** Stores an in-app Notification for one student or advisor and queues its email. */
-  async notify(_recipientId: UserId, _event: NotificationEvent, _scheduleId: ScheduleId, _message: string): Promise<Notification> {
-    throw new NotImplementedError('Notifier.notify');
+  async notify(recipientId: UserId, event: NotificationEvent, scheduleId: ScheduleId, message: string): Promise<Notification> {
+    const notification: Notification = {
+      id: randomUUID(),
+      recipientId,
+      event,
+      scheduleId,
+      message,
+      createdAt: this.clock.now().toISOString(),
+      emailSentAt: null, // queued; Job Runner hands it to the mail service
+    };
+    await this.store.insertNotification(notification);
+    return notification;
   }
 
   /** The signed-in user's Notifications, newest first. Never another user's (NFR-001). */
-  async listNotifications(_userId: UserId): Promise<Notification[]> {
-    throw new NotImplementedError('Notifier.listNotifications');
+  async listNotifications(userId: UserId): Promise<Notification[]> {
+    return userId ? this.store.listNotifications(userId) : [];
   }
 
   /** Sends queued emails through MailService; returns how many were sent. Called by Job Runner. */
