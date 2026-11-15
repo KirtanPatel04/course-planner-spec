@@ -112,6 +112,7 @@ To keep the graph free of cycles, Schedule Manager does not call Enrollment. On 
 | D13 | The plan generator places remaining courses in order of their prerequisites (a topological sort), choosing the earliest future Term that matches each course's offering pattern without going over the Program credit limit. Manually placed courses are fixed inputs. | FR-012, AC-010, AC-021. The specific greedy method is a **preference**; any method that meets AC-010 is acceptable. |
 | D14 | All times are stored in UTC and shown in America/Chicago. Retry timing, the 24-hour cutoff, and registration windows are calculated in UTC. | AC-031 shows clock times. FR-018 and FR-010 depend on time intervals. The time zone choice is a **preference** based on UNO's location. |
 | D15 | Registration Gateway has a simulated version used for development, testing, and the course demo. | NFR-010; Constraint C3 (no access to the real MavLINK API). |
+| D16 | *(added during implementation)* The Data Store keeps each domain object as JSONB, with real columns only for what queries, constraints and conditional updates need (status, student, term, job kind and key). The server uses the fixed schema `public`. Under the test runner, every Data Store instance gets its own schema, so each test starts empty even when test files run in parallel. | NFR-002 and NFR-004 need a real database with constraints (D8, D9). The tests build one Data Store per test against one database URL with no reset step (plan.md Design question 1). A fixed schema in production keeps data across restarts. |
 
 ## 5. Constraints and known limits
 
@@ -165,3 +166,29 @@ Problems I found while designing. I did not resolve these silently. Where the de
 7. **Other drafts after enrollment.** The spec does not say what happens to a student's other Draft schedules for a Term once one is Enrolled (kept, archived, or deleted).
 8. **No feasible plan.** FR-012 and AC-010 assume a plan always exists. They do not cover a case where offering patterns, prerequisites, and the credit limit cannot fit the remaining requirements before the expected graduation date. The spec also never defines a target graduation date.
 9. **Ordering within Routine.** AC-015 orders Needs Review schedules oldest first but does not order multiple Routine schedules. The design uses oldest first for both groups.
+
+### Decisions made during implementation
+
+The implementation (plan.md) had to settle these points. Each is a **preference** where the spec is silent; the spec owner should confirm or change them.
+
+| Question | Decision | Where |
+|---|---|---|
+| Spec issue 1 | A Submitted schedule that fails revalidation is reclassified and both parties are notified. | Revalidator |
+| Spec issue 2 | A schedule with a Flag but no Exception Request can be submitted; it is classified Needs Review. | Schedule Manager |
+| Spec issue 4 | Outside registration windows the job runner syncs once a day. Windows include both dates, in UTC. | Job Runner |
+| Spec issue 5 | Approvals during an outage are accepted with no extra warning. | Schedule Manager |
+| Spec issue 8 | The plan uses only terms in the snapshot. A course that fits nowhere is left out. | Planner |
+| First sync | With no previous snapshot, the first sync is a baseline and reports no changes. | Registration Sync |
+| On-open refresh | Replaces only the student's sections, holds and history. It marks MavLINK available but does not move the last full sync time, so the hourly sync is not pushed back. It does not trigger revalidation; the next full sync does. | Registration Sync |
+| "Full" (G-2) | A section is full when MavLINK's status says FULL. | Validator |
+| Time conflict boundary (G-1) | A section ending when another starts is not a conflict. | Validator |
+| Co-requisites (G-3) | Satisfied by the course in the same schedule, or taken before the term. | Validator |
+| Credit limit | Every section that takes the running total (in schedule order) above the limit is flagged. | Validator |
+| Offering pattern in a plan (G-9) | Not flagged: no reason code exists for it. | Validator |
+| No stored plan | Every course counts as not in the plan for classification. | Classifier |
+| "Current and next Term" (G-5) | The term in progress (or, between terms, the next to start) and the one after it. | Revalidator |
+| Revalidation trigger | A schedule fails when a flag appears that it did not have when submitted. Partially Enrolled schedules are not re-checked (FR-015 names only Submitted, Approved, Enrolled). | Revalidator |
+| Repeated approval (G-11) | Answers 200 with the schedule unchanged. | Schedule Manager |
+| Empty comment or justification (G-12) | Only spaces counts as empty. | Schedule Manager |
+| Errors on submit (G-13) | INVALID_STATE, then REGISTRATION_UNAVAILABLE, then ACTIVE_SUBMISSION_EXISTS. | Schedule Manager |
+| Removing a section | Its Exception Requests stop applying (they stay stored for the audit trail, NFR-007). | Schedule Manager |

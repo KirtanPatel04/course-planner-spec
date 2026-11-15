@@ -59,7 +59,7 @@ export class ReviewQueue {
         sectionIds: row.sectionIds,
         totalCreditHours: row.sectionIds.reduce((sum, id) => sum + (credits.get(courseOf.get(id) ?? '') ?? 0), 0),
         validationResults: row.validationResults,
-        exceptionRequests: await this.store.listExceptionRequests(row.id),
+        exceptionRequests: (await this.store.listExceptionRequests(row.id)).filter((e) => row.sectionIds.includes(e.sectionId)),
         classification: row.classification,
         returnComment: row.returnComment,
         enrollmentRecords: await this.store.listEnrollmentRecords(row.id),

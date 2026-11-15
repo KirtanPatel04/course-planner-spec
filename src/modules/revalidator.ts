@@ -5,7 +5,7 @@ import type { Clock } from '../shared/clock';
 import type { Classifier } from './classifier';
 import type { DataStore } from './dataStore/dataStore';
 import type { Notifier } from './notifier';
-import type { ScheduleManager } from './scheduleManager';
+import { currentExceptionRequests, type ScheduleManager } from './scheduleManager';
 import type { Validator } from './validator';
 
 export interface RevalidationOutcome {
@@ -58,7 +58,7 @@ export class Revalidator {
         const classification = {
           ...await this.classifier.classify({
             studentId: row.studentId, term: row.term, sectionIds: row.sectionIds, validationResults: results,
-            exceptionRequests: await this.store.listExceptionRequests(row.id),
+            exceptionRequests: await currentExceptionRequests(this.store, row),
           }),
           classifiedAt: this.clock.now().toISOString(),
         };

@@ -452,7 +452,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 
 | Item | Why |
 |---|---|
-| `ScheduleManager.removeSection` and `DELETE /schedules/:id/sections/:sectionId` | No test exercises them (test_plan.md G-R1). Recommend adding them to slice 2 as an untested extra once a test exists, or leaving them at 501 for now. |
+| `ScheduleManager.removeSection` and `DELETE /schedules/:id/sections/:sectionId` | No test exercises them (test_plan.md G-R1). Implemented after slice 25 (PR #26) for the demo; still untested. |
 | `MavlinkGateway.fetchRegistrationData`, `enrollSection` | Out of reach by design (C3: no real MavLINK API). Stays `NotImplementedError`. |
 | `JobRunner.start`, `stop` | Filled in slice 8, but no test covers them. |
 | X-30 (restart during retries, NFR-004) | Not automated in the suite (needs a persistent Data Store and a process restart). Can be checked by hand after slice 23. |
@@ -494,3 +494,48 @@ No test was changed.
 - **Interacting rules adjacent:** validation rules 3 to 7. Submit, return and withdraw, then one-active-submission (13 to 16). Enrollment, then at-most-once (20, 21). Outage, then retries (22, 23). Revalidation, then regeneration (24, 25), which both extend `syncAll`.
 
 **Next action:** Slice 1, "Walking skeleton, identity and catalog search". First, resolve Design question 1. Then make `search.test.ts > AC-001 Search with combined filters (FR-001) > AT-001-1 [main][inside][outside] Core, FA27, starting at or after 17:00` pass.
+
+---
+
+## Implementation results
+
+Every slice was built on its own branch, checked against the full suite, reviewed against spec.md, contracts.md and its slice in this plan, and merged through a pull request. The table shows the passing count after each merge (of 122).
+
+| Slice | PR | Passing | Slice | PR | Passing |
+|---|---|---|---|---|---|
+| 1 Walking skeleton | #1 | 27 | 14 Return | #14 | 95 |
+| 2 Drafts and ownership | #2 | 51 | 15 Withdraw | #15 | 99 |
+| 3 Time conflicts | #3 | 53 | 16 One active submission | #16 | 102 |
+| 4 Prerequisites | #4 | 55 | 17 Exception requests | #17 | 105 |
+| 5 Credit limit | #5 | 57 | 18 Advisor dashboard | #18 | 109 |
+| 6 Co-requisites, holds | #6 | 59 | 19 Side-by-side review | #19 | 110 |
+| 7 Section status, refresh | #7 | 62 | 20 Enrollment | #20 | 113 |
+| 8 Job Runner | #8 | 64 | 21 Enroll at most once | #21 | 115 |
+| 9 Degree progress | #9 | 67 | 22 Outage | #22 | 116 |
+| 10 Plan generation | #10 | 68 | 23 Enrollment retries | #23 | 119 |
+| 11 Plan moves | #11 | 70 | 24 Revalidation | #24 | 121 |
+| 12 Classification | #12 | 74 | 25 Plan regeneration | #25 | **122** |
+| 13 Submit and approve | #13 | 89 | | | |
+
+No test was changed, skipped or loosened, and no slice broke a test that passed before it.
+
+**How the design questions were answered.**
+
+1. **Test isolation:** option (a). Each Data Store instance gets its own schema under the test runner; the server uses `public` (architecture.md D16).
+2. **First sync:** it is a baseline and reports no changes.
+3. **Refresh vs. sync:** availability follows every MavLINK call, but only `syncAll` moves `lastSuccessfulSyncAt`.
+4. **Refresh and revalidation:** a per-student refresh does not trigger revalidation (following contracts.md); full syncs do.
+5. **Credit limit:** every section past the limit, in schedule order, is flagged.
+6. **"Full":** MavLINK's FULL status.
+7. **Plan range:** snapshot terms only; a course that fits nowhere is left out.
+8. **Offering pattern:** no flag (no reason code exists).
+9. **No stored plan:** every course is "not in plan".
+10. **Flags without an Exception Request:** submission allowed, classified Needs Review.
+
+The full list of implementation decisions is in architecture.md, "Decisions made during implementation".
+
+**What the run showed about the plan.**
+
+- **Early greens:** the control tests listed in Test issue 4 went green in slice 2, as predicted. X-18 (slice 13) also went green in slice 2, because the student-cannot-approve rule lives in `authorizeSchedule`.
+- **Nondeterministic test:** X-10 (slice 21) passed early whenever the withdraw won the race, and failed when the approve won, until the enrollment job existed (slice 20). It was kept in slice 21.
+- **Repeated runs:** the race tests (X-10, X-11, AT-035-1) and the full suite were run repeatedly with no failures.

@@ -3,9 +3,9 @@
 // recording each one in the schedule history. Authorization is done by the caller (API → Access Control).
 
 import { randomUUID } from 'node:crypto';
-import { DomainError, NotImplementedError } from '../domain/errors';
+import { DomainError } from '../domain/errors';
 import type {
-  Actor, ReasonCode, ScheduleId, ScheduleStatus, ScheduleSummary, ScheduleView, SectionId, StudentId, TermCode,
+  Actor, ExceptionRequest, ReasonCode, ScheduleId, ScheduleStatus, ScheduleSummary, ScheduleView, SectionId, StudentId, TermCode,
 } from '../domain/types';
 import type { Clock } from '../shared/clock';
 import type { Classifier } from './classifier';
@@ -21,6 +21,10 @@ const APPROVED_OR_LATER: ScheduleStatus[] = ['APPROVED', 'ENROLLED', 'PARTIALLY_
 
 const activeSubmissionExists = () => new DomainError('ACTIVE_SUBMISSION_EXISTS',
   'You already have a submitted schedule for this term. Withdraw it before submitting another one.');
+
+/** Exception Requests on sections still in the schedule; a removed section takes its requests with it. */
+export const currentExceptionRequests = async (store: DataStore, row: ScheduleRow): Promise<ExceptionRequest[]> =>
+  (await store.listExceptionRequests(row.id)).filter((e) => row.sectionIds.includes(e.sectionId));
 
 export class ScheduleManager {
   constructor(
@@ -99,7 +103,7 @@ export class ScheduleManager {
       sectionIds: row.sectionIds,
       totalCreditHours: row.sectionIds.reduce((sum, id) => sum + (credits.get(courseOf.get(id) ?? '') ?? 0), 0),
       validationResults: await this.validator.validateSchedule({ studentId: row.studentId, term: row.term, sectionIds: row.sectionIds }),
-      exceptionRequests: await this.store.listExceptionRequests(row.id),
+      exceptionRequests: await currentExceptionRequests(this.store, row),
       classification: row.classification,
       returnComment: row.returnComment,
       enrollmentRecords: await this.store.listEnrollmentRecords(row.id),
@@ -136,8 +140,17 @@ export class ScheduleManager {
    * Removes a section (and any Exception Request on it) and returns the revalidated schedule.
    * @throws DomainError INVALID_INPUT if the section is not in the schedule, INVALID_STATE as addSection.
    */
-  async removeSection(_scheduleId: ScheduleId, _sectionId: SectionId): Promise<ScheduleView> {
-    throw new NotImplementedError('ScheduleManager.removeSection');
+  async removeSection(scheduleId: ScheduleId, sectionId: SectionId): Promise<ScheduleView> {
+    const row = await this.requireRow(scheduleId);
+    if (!row.sectionIds.includes(sectionId)) throw new DomainError('INVALID_INPUT', 'The section is not in this schedule');
+    const sectionIds = row.sectionIds.filter((id) => id !== sectionId);
+    const validationResults = await this.validator.validateSchedule({ studentId: row.studentId, term: row.term, sectionIds });
+    // The section's Exception Requests go with it: they apply only to sections in the schedule
+    // (see currentExceptionRequests), and the audit rows stay stored (NFR-007).
+    if (!await this.store.updateScheduleContents(scheduleId, EDITABLE, { sectionIds, validationResults })) {
+      throw new DomainError('INVALID_STATE', 'Only Draft or Returned schedules can be edited');
+    }
+    return this.getSchedule(scheduleId);
   }
 
   /**
@@ -182,7 +195,7 @@ export class ScheduleManager {
     }
 
     const validationResults = await this.validator.validateSchedule({ studentId: row.studentId, term: row.term, sectionIds: row.sectionIds });
-    const exceptionRequests = await this.store.listExceptionRequests(scheduleId);
+    const exceptionRequests = await currentExceptionRequests(this.store, row);
     const now = this.now();
     const classification = {
       ...await this.classifier.classify({ studentId: row.studentId, term: row.term, sectionIds: row.sectionIds, validationResults, exceptionRequests }),

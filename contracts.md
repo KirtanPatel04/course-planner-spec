@@ -1,6 +1,13 @@
 # Contracts: UNO Course Registration and Planning Application
 
-The calling interfaces that the tests run against. Section references (FR-, NFR-, AC-) point to [`spec.md`](spec.md); module names and dependencies follow [`architecture.md`](architecture.md) §2. The skeleton in `src/` implements exactly these signatures. Every body throws `NotImplementedError`, and every REST route answers HTTP 501.
+The calling interfaces that the tests run against. Section references (FR-, NFR-, AC-) point to [`spec.md`](spec.md); module names and dependencies follow [`architecture.md`](architecture.md) §2. The code in `src/` implements exactly these signatures. Every function is now implemented (see [`plan.md`](plan.md)), except `MavlinkGateway`, which needs real MavLINK access (C3).
+
+**Changes during implementation.** No signature, route, field or error code changed. Additions:
+
+- **Driver:** `pg` (the PostgreSQL driver) is a dependency.
+- **Test setup:** a Vitest global setup (`tests/setup/postgres.ts`) creates the test database and drops the per-test schemas (architecture.md D16).
+- **Demo seed data:** `src/modules/registrationGateway/demoData.ts` holds the simulator's demo data (C3). `server.ts` seeds the simulator and syncs before it starts listening.
+- **`classifiedAt`:** `Classifier` has no injected clock, so callers stamp `classifiedAt` with their own clock when they store a classification.
 
 **Stack (architecture C1):** TypeScript, Node.js 20+, Express 4, PostgreSQL. Tests use Vitest and supertest.
 
