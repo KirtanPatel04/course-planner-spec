@@ -412,7 +412,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `Enrollment.processEnrollmentJob` (parts: `RETRY_SCHEDULED`, `GAVE_UP`).
 - **Depends on:** 20, 22.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 24: Revalidation after registration data changes
 

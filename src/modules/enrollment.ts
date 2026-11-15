@@ -1,12 +1,16 @@
 // Enrollment (architecture.md §2, §3.1 steps 12–15, §3.4; FR-014, FR-018, FR-020, NFR-004, D9).
 
+import { RegistrationUnavailableError } from '../domain/errors';
 import type { EnrollmentJobOutcome, Job } from '../domain/types';
 import type { Clock } from '../shared/clock';
-import type { DataStore } from './dataStore/dataStore';
+import type { DataStore, ScheduleRow } from './dataStore/dataStore';
 import type { Notifier } from './notifier';
 import type { Planner } from './planner';
 import type { RegistrationGateway } from './registrationGateway/registrationGateway';
 import type { ScheduleManager } from './scheduleManager';
+
+const RETRY_AFTER_MS = 15 * 60_000; // FR-018
+const GIVE_UP_AFTER_MS = 24 * 60 * 60_000; // FR-018
 
 export class Enrollment {
   constructor(
@@ -27,15 +31,22 @@ export class Enrollment {
    */
   async processEnrollmentJob(job: Job): Promise<EnrollmentJobOutcome> {
     const schedule = (await this.store.getSchedule(job.key))!;
+    const now = this.clock.now();
+    const firstAttemptAt = job.firstAttemptAt ?? now.toISOString();
 
     // Send only sections without an Enrolled record, so a retry never re-sends one (NFR-004, FR-020).
     const enrolled = new Set((await this.store.listEnrollmentRecords(schedule.id))
       .filter((r) => r.outcome === 'ENROLLED').map((r) => r.sectionId));
-    for (const sectionId of schedule.sectionIds.filter((id) => !enrolled.has(id))) {
-      const answer = await this.gateway.enrollSection(schedule.studentId, sectionId);
-      await this.store.insertEnrollmentRecord(answer.ok
-        ? { scheduleId: schedule.id, sectionId, outcome: 'ENROLLED', recordedAt: this.now() }
-        : { scheduleId: schedule.id, sectionId, outcome: 'FAILED', reason: answer.reason, recordedAt: this.now() });
+    try {
+      for (const sectionId of schedule.sectionIds.filter((id) => !enrolled.has(id))) {
+        const answer = await this.gateway.enrollSection(schedule.studentId, sectionId);
+        await this.store.insertEnrollmentRecord(answer.ok
+          ? { scheduleId: schedule.id, sectionId, outcome: 'ENROLLED', recordedAt: this.now() }
+          : { scheduleId: schedule.id, sectionId, outcome: 'FAILED', reason: answer.reason, recordedAt: this.now() });
+      }
+    } catch (err) {
+      if (!(err instanceof RegistrationUnavailableError)) throw err;
+      return this.handleOutage(job, schedule, firstAttemptAt, now);
     }
 
     // The latest record per section decides the result.
@@ -61,6 +72,31 @@ export class Enrollment {
     }
     await this.store.deleteJob(job.id);
     return 'COMPLETED';
+  }
+
+  /**
+   * MavLINK cannot be reached (FR-018): retry 15 minutes later, until 24 hours have passed since the
+   * first attempt. Then stop and tell the student and advisor. The schedule stays Approved (test_plan.md G-10).
+   */
+  private async handleOutage(job: Job, schedule: ScheduleRow, firstAttemptAt: string, now: Date): Promise<EnrollmentJobOutcome> {
+    if (now.getTime() - Date.parse(firstAttemptAt) >= GIVE_UP_AFTER_MS) {
+      const data = await this.store.getRegistrationData();
+      const termName = data.terms.find((t) => t.code === schedule.term)?.name ?? schedule.term;
+      const message = `Enrollment for the ${termName} schedule "${schedule.name}" did not go through: the registration system `
+        + 'could not be reached for 24 hours. Contact your advisor to enroll.';
+      await this.notifier.notify(schedule.studentId, 'ENROLLMENT_RESULT', schedule.id, message);
+      const advisorId = data.students.find((s) => s.id === schedule.studentId)?.advisorId;
+      if (advisorId) await this.notifier.notify(advisorId, 'ENROLLMENT_RESULT', schedule.id, message);
+      await this.store.deleteJob(job.id);
+      return 'GAVE_UP';
+    }
+    await this.store.updateJob({
+      ...job,
+      firstAttemptAt,
+      attempts: job.attempts + 1,
+      runAt: new Date(now.getTime() + RETRY_AFTER_MS).toISOString(),
+    });
+    return 'RETRY_SCHEDULED';
   }
 
   private now(): string {
