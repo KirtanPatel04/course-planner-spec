@@ -37,7 +37,37 @@ const DDL = `
     last_successful_sync_at text,
     available boolean NOT NULL DEFAULT true
   );
+  CREATE TABLE IF NOT EXISTS schedules (
+    id text PRIMARY KEY,
+    student_id text NOT NULL,
+    term text NOT NULL,
+    status text NOT NULL,
+    created_at text NOT NULL,
+    data jsonb NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS status_changes (
+    seq bigserial PRIMARY KEY,
+    schedule_id text NOT NULL,
+    data jsonb NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS exception_requests (
+    seq bigserial PRIMARY KEY,
+    schedule_id text NOT NULL,
+    data jsonb NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS enrollment_records (
+    seq bigserial PRIMARY KEY,
+    schedule_id text NOT NULL,
+    data jsonb NOT NULL
+  );
 `;
+
+/** The parts of a ScheduleRow kept in real columns rather than in `data`. */
+const toScheduleRow = (r: { status: ScheduleStatus; data: ScheduleRow }): ScheduleRow => ({ ...r.data, status: r.status });
+const withoutStatus = (patch: Partial<ScheduleRow>): Partial<ScheduleRow> => {
+  const { status: _status, ...rest } = patch;
+  return rest;
+};
 
 interface Queryable {
   query<R extends QueryResultRow = QueryResultRow>(sql: string, params?: unknown[]): Promise<{ rows: R[]; rowCount: number | null }>;
@@ -58,9 +88,14 @@ export class PostgresDataStore implements DataStore {
   private connect(): Promise<Pool> {
     if (!this.pool) {
       this.pool = (async () => {
-        const pool = new Pool({ connectionString: this.connectionString, max: 5, idleTimeoutMillis: 1000, allowExitOnIdle: true });
+        const pool = new Pool({
+          connectionString: this.connectionString,
+          options: `-c search_path=${this.schema}`,
+          max: 5,
+          idleTimeoutMillis: 1000,
+          allowExitOnIdle: true,
+        });
         pool.on('error', () => { /* an idle client failed; the next query reconnects */ });
-        pool.on('connect', (c) => { void c.query(`SET search_path TO "${this.schema}"`); });
         await pool.query(`CREATE SCHEMA IF NOT EXISTS "${this.schema}"`);
         await pool.query(DDL);
         return pool;
@@ -121,14 +156,59 @@ export class PostgresDataStore implements DataStore {
 
   // ----- schedules -----
 
-  insertSchedule(_row: ScheduleRow, _change: StatusChange): Promise<void> { return ni('insertSchedule'); }
-  getSchedule(_id: ScheduleId): Promise<ScheduleRow | null> { return ni('getSchedule'); }
-  listSchedules(_filter: ScheduleFilter): Promise<ScheduleRow[]> { return ni('listSchedules'); }
-  updateScheduleContents(_id: ScheduleId, _expected: ScheduleStatus[], _patch: Partial<ScheduleRow>): Promise<boolean> { return ni('updateScheduleContents'); }
+  async insertSchedule(row: ScheduleRow, change: StatusChange): Promise<void> {
+    await this.transaction(async (tx) => {
+      const db = await (tx as PostgresDataStore).db();
+      await db.query(
+        'INSERT INTO schedules (id, student_id, term, status, created_at, data) VALUES ($1, $2, $3, $4, $5, $6)',
+        [row.id, row.studentId, row.term, row.status, row.createdAt, JSON.stringify(withoutStatus(row))]);
+      await db.query('INSERT INTO status_changes (schedule_id, data) VALUES ($1, $2)', [row.id, JSON.stringify(change)]);
+    });
+  }
+
+  async getSchedule(id: ScheduleId): Promise<ScheduleRow | null> {
+    const { rows } = await (await this.db()).query<{ status: ScheduleStatus; data: ScheduleRow }>(
+      'SELECT status, data FROM schedules WHERE id = $1', [id]);
+    return rows[0] ? toScheduleRow(rows[0]) : null;
+  }
+
+  async listSchedules(filter: ScheduleFilter): Promise<ScheduleRow[]> {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    const add = (sql: string, value: unknown) => { params.push(value); where.push(sql.replace(':v', `$${params.length}`)); };
+    if (filter.studentId !== undefined) add('student_id = :v', filter.studentId);
+    if (filter.studentIds !== undefined) add('student_id = ANY(:v)', filter.studentIds);
+    if (filter.term !== undefined) add('term = :v', filter.term);
+    if (filter.terms !== undefined) add('term = ANY(:v)', filter.terms);
+    if (filter.statuses !== undefined) add('status = ANY(:v)', filter.statuses);
+    if (filter.sectionIds !== undefined) add(`data->'sectionIds' ?| :v`, filter.sectionIds);
+    const { rows } = await (await this.db()).query<{ status: ScheduleStatus; data: ScheduleRow }>(
+      `SELECT status, data FROM schedules ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY created_at, id`, params);
+    return rows.map(toScheduleRow);
+  }
+
+  async updateScheduleContents(id: ScheduleId, expectedStatuses: ScheduleStatus[], patch: Partial<ScheduleRow>): Promise<boolean> {
+    const { rowCount } = await (await this.db()).query(
+      'UPDATE schedules SET data = data || $3::jsonb WHERE id = $1 AND status = ANY($2)',
+      [id, expectedStatuses, JSON.stringify(withoutStatus(patch))]);
+    return (rowCount ?? 0) > 0;
+  }
+
   updateScheduleStatus(_id: ScheduleId, _expected: ScheduleStatus, _patch: Partial<ScheduleRow>, _change: StatusChange): Promise<boolean> { return ni('updateScheduleStatus'); }
-  listStatusChanges(_id: ScheduleId): Promise<StatusChange[]> { return ni('listStatusChanges'); }
+
+  async listStatusChanges(id: ScheduleId): Promise<StatusChange[]> {
+    const { rows } = await (await this.db()).query<{ data: StatusChange }>(
+      'SELECT data FROM status_changes WHERE schedule_id = $1 ORDER BY seq', [id]);
+    return rows.map((r) => r.data);
+  }
+
   insertExceptionRequest(_request: ExceptionRequest): Promise<void> { return ni('insertExceptionRequest'); }
-  listExceptionRequests(_id: ScheduleId): Promise<ExceptionRequest[]> { return ni('listExceptionRequests'); }
+
+  async listExceptionRequests(id: ScheduleId): Promise<ExceptionRequest[]> {
+    const { rows } = await (await this.db()).query<{ data: ExceptionRequest }>(
+      'SELECT data FROM exception_requests WHERE schedule_id = $1 ORDER BY seq', [id]);
+    return rows.map((r) => r.data);
+  }
   insertAdvisorDecision(_decision: AdvisorDecision): Promise<void> { return ni('insertAdvisorDecision'); }
 
   // ----- plans -----
@@ -139,7 +219,11 @@ export class PostgresDataStore implements DataStore {
   // ----- enrollment -----
 
   insertEnrollmentRecord(_record: EnrollmentRecord): Promise<void> { return ni('insertEnrollmentRecord'); }
-  listEnrollmentRecords(_id: ScheduleId): Promise<EnrollmentRecord[]> { return ni('listEnrollmentRecords'); }
+  async listEnrollmentRecords(id: ScheduleId): Promise<EnrollmentRecord[]> {
+    const { rows } = await (await this.db()).query<{ data: EnrollmentRecord }>(
+      'SELECT data FROM enrollment_records WHERE schedule_id = $1 ORDER BY seq', [id]);
+    return rows.map((r) => r.data);
+  }
 
   // ----- jobs -----
 
