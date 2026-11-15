@@ -426,7 +426,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `Revalidator.revalidate`; `ScheduleManager.systemReturn`; `RegistrationSync.syncAll` (part: pass changes to Revalidator); `Enrollment.processEnrollmentJob` (part: `CANCELLED` when no longer Approved).
 - **Depends on:** 20.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 25: Plan regeneration after course history changes
 

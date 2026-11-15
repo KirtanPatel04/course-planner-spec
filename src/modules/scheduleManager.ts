@@ -286,8 +286,10 @@ export class ScheduleManager {
    * Approved → Returned with a system comment (FR-015, AC-026). Called by Revalidator.
    * Returns false, changing nothing, if the schedule is no longer Approved.
    */
-  async systemReturn(_scheduleId: ScheduleId, _comment: string): Promise<boolean> {
-    throw new NotImplementedError('ScheduleManager.systemReturn');
+  async systemReturn(scheduleId: ScheduleId, comment: string): Promise<boolean> {
+    return this.store.transaction((tx) => tx.updateScheduleStatus(
+      scheduleId, 'APPROVED', { returnComment: comment },
+      { scheduleId, from: 'APPROVED', to: 'RETURNED', actor: { kind: 'SYSTEM' }, at: this.now(), comment }));
   }
 
   /** Approved → Enrolled or Partially Enrolled (FR-014). Called by Enrollment. */
