@@ -240,7 +240,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `Classifier.classify`.
 - **Depends on:** 11 (the tests pin the plan with `PUT /plan/courses`).
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 13: Submit and approve, with notifications
 
