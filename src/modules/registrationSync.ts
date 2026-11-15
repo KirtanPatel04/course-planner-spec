@@ -1,7 +1,7 @@
 // Registration Sync (architecture.md §2, §3.3, §3.4; FR-010, FR-018, NFR-003, D4, D5, D6).
 
 import { NotImplementedError } from '../domain/errors';
-import type { StudentId, SyncReport, SyncStatus } from '../domain/types';
+import type { RegistrationData, StudentId, SyncReport, SyncStatus } from '../domain/types';
 import type { Clock } from '../shared/clock';
 import type { DataStore } from './dataStore/dataStore';
 import type { Planner } from './planner';
@@ -23,7 +23,17 @@ export class RegistrationSync {
    * successful sync time, and returns succeeded=false. Never throws for an outage.
    */
   async syncAll(): Promise<SyncReport> {
-    throw new NotImplementedError('RegistrationSync.syncAll');
+    const syncedAt = this.clock.now().toISOString();
+    const fresh = await this.gateway.fetchRegistrationData();
+    const before = await this.store.getSyncStatus();
+    const previous = await this.store.getRegistrationData();
+    // The first successful sync sets the baseline: with nothing to compare against, it reports no
+    // changes (D6; plan.md Design question 2).
+    const report: SyncReport = before.lastSuccessfulSyncAt === null
+      ? { succeeded: true, syncedAt, changedSectionIds: [], changedHoldStudentIds: [], changedHistoryStudentIds: [] }
+      : { succeeded: true, syncedAt, ...diff(previous, fresh) };
+    await this.store.saveRegistrationData(fresh, syncedAt);
+    return report;
   }
 
   /**
@@ -38,4 +48,27 @@ export class RegistrationSync {
   async getSyncStatus(): Promise<SyncStatus> {
     throw new NotImplementedError('RegistrationSync.getSyncStatus');
   }
+}
+
+type Changes = Pick<SyncReport, 'changedSectionIds' | 'changedHoldStudentIds' | 'changedHistoryStudentIds'>;
+
+/** What changed between two snapshots: sections by ID, holds and course history by student (D6). */
+function diff(before: RegistrationData, after: RegistrationData): Changes {
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+  const oldSections = new Map(before.sections.map((s) => [s.id, s]));
+  const newSections = new Map(after.sections.map((s) => [s.id, s]));
+  const changedSectionIds = [...new Set([...oldSections.keys(), ...newSections.keys()])]
+    .filter((id) => !same(oldSections.get(id), newSections.get(id)));
+
+  const changedStudents = <T extends { studentId: string }>(a: T[], b: T[]) => {
+    const ids = new Set([...a, ...b].map((x) => x.studentId));
+    return [...ids].filter((id) => !same(a.filter((x) => x.studentId === id), b.filter((x) => x.studentId === id)));
+  };
+
+  return {
+    changedSectionIds,
+    changedHoldStudentIds: changedStudents(before.holds, after.holds),
+    changedHistoryStudentIds: changedStudents(before.courseHistory, after.courseHistory),
+  };
 }
