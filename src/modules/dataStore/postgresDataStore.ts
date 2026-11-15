@@ -256,7 +256,9 @@ export class PostgresDataStore implements DataStore {
     return rows.map((r) => r.data);
   }
 
-  insertExceptionRequest(_request: ExceptionRequest): Promise<void> { return ni('insertExceptionRequest'); }
+  async insertExceptionRequest(request: ExceptionRequest): Promise<void> {
+    await (await this.db()).query('INSERT INTO exception_requests (schedule_id, data) VALUES ($1, $2)', [request.scheduleId, JSON.stringify(request)]);
+  }
 
   async listExceptionRequests(id: ScheduleId): Promise<ExceptionRequest[]> {
     const { rows } = await (await this.db()).query<{ data: ExceptionRequest }>(

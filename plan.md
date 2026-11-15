@@ -329,7 +329,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `ScheduleManager.requestException`; `PostgresDataStore.insertExceptionRequest`. Route: `POST /schedules/:id/exceptions`.
 - **Depends on:** 4, 13.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 18: Advisor dashboard
 
