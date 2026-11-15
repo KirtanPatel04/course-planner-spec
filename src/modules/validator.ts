@@ -48,8 +48,28 @@ const timeConflict: ScheduleRule = ({ sections }, flags) => {
   });
 };
 
+/**
+ * Course History rule: a course counts as taken before `target` if it is completed, or in progress
+ * in a term that ends before `target` begins.
+ */
+const takenBefore = (data: RegistrationData, studentId: StudentId, courseId: CourseId, target: Term | undefined): boolean =>
+  data.courseHistory.some((e) => e.studentId === studentId && e.courseId === courseId && (
+    e.status === 'COMPLETED'
+    || (target !== undefined && (data.terms.find((t) => t.code === e.term)?.endDate ?? '9999-12-31') < target.startDate)));
+
+/** MISSING_PREREQUISITE (AC-005, AC-006): names every prerequisite not taken before the schedule's term. */
+const missingPrerequisite: ScheduleRule = ({ data, studentId, term, sections, courses }, flags) => {
+  sections.forEach((s, i) => {
+    const missing = (s ? courses.get(s.courseId)?.prerequisites ?? [] : [])
+      .filter((p) => !takenBefore(data, studentId, p, term));
+    if (missing.length) {
+      flags[i].push({ code: 'MISSING_PREREQUISITE', message: `Requires ${missing.join(', ')}`, relatedCourseIds: missing, relatedSectionIds: [] });
+    }
+  });
+};
+
 /** FR-011's checks, one function per reason code. */
-const SCHEDULE_RULES: ScheduleRule[] = [timeConflict];
+const SCHEDULE_RULES: ScheduleRule[] = [timeConflict, missingPrerequisite];
 
 export interface ScheduleValidationInput {
   studentId: StudentId;
