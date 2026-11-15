@@ -2,12 +2,14 @@
 // Decides whether a user may perform an action on a student's data, using the student IDs
 // and advisor assignments in the registration snapshot. Approve and Return are advisor-only.
 
-import { DomainError, NotImplementedError } from '../domain/errors';
+import { DomainError } from '../domain/errors';
 import type { Action, Actor, AdvisorId, ScheduleId, StudentId, UserId } from '../domain/types';
 import type { DataStore } from './dataStore/dataStore';
 
 /** What a student may do to their own schedules (FR-019). Approve and Return are advisor-only. */
 const STUDENT_ACTIONS: Action[] = ['VIEW', 'EDIT', 'SUBMIT', 'WITHDRAW'];
+/** What an advisor may do to the schedules of students assigned to them (FR-019, FR-008). */
+const ADVISOR_ACTIONS: Action[] = ['VIEW', 'APPROVE', 'RETURN'];
 
 export class AccessControl {
   constructor(private readonly store: DataStore) {}
@@ -63,6 +65,13 @@ export class AccessControl {
       if (!STUDENT_ACTIONS.includes(action)) throw new DomainError('FORBIDDEN', 'Students cannot perform this action');
       return schedule.studentId;
     }
-    throw new NotImplementedError('AccessControl.authorizeSchedule (advisor actions)');
+    if (actor.kind === 'ADVISOR') {
+      // Advisor scope comes from the current MavLINK assignment in the snapshot (D1).
+      const student = (await this.store.getRegistrationData()).students.find((s) => s.id === schedule.studentId);
+      if (student?.advisorId !== actor.id) throw notFound();
+      if (!ADVISOR_ACTIONS.includes(action)) throw new DomainError('FORBIDDEN', 'Advisors cannot perform this action');
+      return schedule.studentId;
+    }
+    throw notFound();
   }
 }

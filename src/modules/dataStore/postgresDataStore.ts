@@ -20,6 +20,9 @@ const ni = (name: string): never => {
   throw new NotImplementedError(`DataStore.${name}`);
 };
 
+/** PostgreSQL error code for a unique-constraint violation. */
+const UNIQUE_VIOLATION = '23505';
+
 /** Prefix of the per-instance schemas used under the test runner. */
 export const TEST_SCHEMA_PREFIX = 'cp_test_';
 
@@ -56,6 +59,11 @@ const DDL = `
     data jsonb NOT NULL
   );
   CREATE TABLE IF NOT EXISTS enrollment_records (
+    seq bigserial PRIMARY KEY,
+    schedule_id text NOT NULL,
+    data jsonb NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS advisor_decisions (
     seq bigserial PRIMARY KEY,
     schedule_id text NOT NULL,
     data jsonb NOT NULL
@@ -213,7 +221,31 @@ export class PostgresDataStore implements DataStore {
     return (rowCount ?? 0) > 0;
   }
 
-  updateScheduleStatus(_id: ScheduleId, _expected: ScheduleStatus, _patch: Partial<ScheduleRow>, _change: StatusChange): Promise<boolean> { return ni('updateScheduleStatus'); }
+  async updateScheduleStatus(id: ScheduleId, expected: ScheduleStatus, patch: Partial<ScheduleRow>, change: StatusChange): Promise<boolean> {
+    // A conditional update (D8): it changes the row only if the status is still `expected`. A racing
+    // request waits for the row lock and then finds the status changed. The change runs in a
+    // savepoint, so a constraint violation returns false without aborting the caller's transaction.
+    return this.transaction(async (tx) => {
+      const db = await (tx as PostgresDataStore).db();
+      await db.query('SAVEPOINT status_change');
+      try {
+        const { rowCount } = await db.query(
+          'UPDATE schedules SET status = $3, data = data || $4::jsonb WHERE id = $1 AND status = $2',
+          [id, expected, change.to, JSON.stringify(withoutStatus(patch))]);
+        if (!rowCount) {
+          await db.query('RELEASE SAVEPOINT status_change');
+          return false;
+        }
+        await db.query('INSERT INTO status_changes (schedule_id, data) VALUES ($1, $2)', [id, JSON.stringify(change)]);
+        await db.query('RELEASE SAVEPOINT status_change');
+        return true;
+      } catch (err) {
+        await db.query('ROLLBACK TO SAVEPOINT status_change');
+        if ((err as { code?: string }).code === UNIQUE_VIOLATION) return false;
+        throw err;
+      }
+    });
+  }
 
   async listStatusChanges(id: ScheduleId): Promise<StatusChange[]> {
     const { rows } = await (await this.db()).query<{ data: StatusChange }>(
@@ -228,7 +260,9 @@ export class PostgresDataStore implements DataStore {
       'SELECT data FROM exception_requests WHERE schedule_id = $1 ORDER BY seq', [id]);
     return rows.map((r) => r.data);
   }
-  insertAdvisorDecision(_decision: AdvisorDecision): Promise<void> { return ni('insertAdvisorDecision'); }
+  async insertAdvisorDecision(decision: AdvisorDecision): Promise<void> {
+    await (await this.db()).query('INSERT INTO advisor_decisions (schedule_id, data) VALUES ($1, $2)', [decision.scheduleId, JSON.stringify(decision)]);
+  }
 
   // ----- plans -----
 
@@ -254,7 +288,12 @@ export class PostgresDataStore implements DataStore {
 
   // ----- jobs -----
 
-  enqueueJob(_job: Job): Promise<boolean> { return ni('enqueueJob'); }
+  async enqueueJob(job: Job): Promise<boolean> {
+    const { rowCount } = await (await this.db()).query(
+      'INSERT INTO jobs (id, kind, key, run_at, data) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (kind, key) DO NOTHING',
+      [job.id, job.kind, job.key, job.runAt, JSON.stringify(job)]);
+    return (rowCount ?? 0) > 0;
+  }
   async listDueJobs(now: Instant, kind?: JobKind): Promise<Job[]> {
     // ISO-8601 UTC instants in one format compare in time order as text (D14).
     const { rows } = await (await this.db()).query<{ data: Job }>(
@@ -266,8 +305,17 @@ export class PostgresDataStore implements DataStore {
 
   // ----- notifications -----
 
-  insertNotification(_n: Notification): Promise<void> { return ni('insertNotification'); }
-  listNotifications(_recipientId: string): Promise<Notification[]> { return ni('listNotifications'); }
+  async insertNotification(n: Notification): Promise<void> {
+    await (await this.db()).query(
+      'INSERT INTO notifications (id, recipient_id, email_sent_at, data) VALUES ($1, $2, $3, $4)',
+      [n.id, n.recipientId, n.emailSentAt, JSON.stringify(n)]);
+  }
+
+  async listNotifications(recipientId: string): Promise<Notification[]> {
+    const { rows } = await (await this.db()).query<{ data: Notification }>(
+      'SELECT data FROM notifications WHERE recipient_id = $1 ORDER BY seq DESC', [recipientId]);
+    return rows.map((r) => r.data);
+  }
   async listUnsentEmails(): Promise<Notification[]> {
     const { rows } = await (await this.db()).query<{ data: Notification }>(
       'SELECT data FROM notifications WHERE email_sent_at IS NULL ORDER BY seq');

@@ -269,7 +269,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
   - Routes: `POST /schedules/:id/submit`, `POST /schedules/:id/approve`, `GET /notifications`
 - **Depends on:** 2, 8 (AT-034-1, AT-034-2 and X-05 call `runJobs`), 12.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 14: Return with a comment
 

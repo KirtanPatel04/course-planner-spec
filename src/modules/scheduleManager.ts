@@ -29,6 +29,21 @@ export class ScheduleManager {
     return this.clock.now().toISOString();
   }
 
+  private async requireRow(scheduleId: ScheduleId): Promise<ScheduleRow> {
+    const row = await this.store.getSchedule(scheduleId);
+    if (!row) throw new DomainError('NOT_FOUND', 'Schedule not found');
+    return row;
+  }
+
+  /** The schedule's student record and term name, for notification messages. */
+  private async describe(row: ScheduleRow) {
+    const data = await this.store.getRegistrationData();
+    return {
+      student: data.students.find((s) => s.id === row.studentId),
+      termName: data.terms.find((t) => t.code === row.term)?.name ?? row.term,
+    };
+  }
+
   /**
    * Creates an empty Draft schedule for a Term. A student may have several Drafts per Term.
    * @throws DomainError INVALID_INPUT if the term is unknown.
@@ -136,8 +151,28 @@ export class ScheduleManager {
    *         ACTIVE_SUBMISSION_EXISTS if another schedule for the Term is Submitted or later (AC-014),
    *         INVALID_STATE from any other status.
    */
-  async submit(_scheduleId: ScheduleId, _actor: Actor): Promise<ScheduleView> {
-    throw new NotImplementedError('ScheduleManager.submit');
+  async submit(scheduleId: ScheduleId, actor: Actor): Promise<ScheduleView> {
+    const row = await this.requireRow(scheduleId);
+    if (!EDITABLE.includes(row.status)) throw new DomainError('INVALID_STATE', 'Only a Draft or Returned schedule can be submitted');
+
+    const validationResults = await this.validator.validateSchedule({ studentId: row.studentId, term: row.term, sectionIds: row.sectionIds });
+    const exceptionRequests = await this.store.listExceptionRequests(scheduleId);
+    const now = this.now();
+    const classification = {
+      ...await this.classifier.classify({ studentId: row.studentId, term: row.term, sectionIds: row.sectionIds, validationResults, exceptionRequests }),
+      classifiedAt: now,
+    };
+    const submitted = await this.store.transaction((tx) => tx.updateScheduleStatus(
+      scheduleId, row.status, { validationResults, classification, submittedAt: now },
+      { scheduleId, from: row.status, to: 'SUBMITTED', actor, at: now }));
+    if (!submitted) throw new DomainError('INVALID_STATE', 'Only a Draft or Returned schedule can be submitted');
+
+    const { student, termName } = await this.describe(row);
+    if (student) {
+      await this.notifier.notify(student.advisorId, 'SCHEDULE_SUBMITTED', scheduleId,
+        `${student.name} submitted the ${termName} schedule "${row.name}" for review (${classification.label === 'ROUTINE' ? 'Routine' : 'Needs Review'}).`);
+    }
+    return this.getSchedule(scheduleId);
   }
 
   /**
@@ -154,8 +189,27 @@ export class ScheduleManager {
    * changes nothing and returns the schedule (FR-020, AC-035).
    * @throws DomainError INVALID_STATE from Draft or Returned.
    */
-  async approve(_scheduleId: ScheduleId, _actor: Actor): Promise<ScheduleView> {
-    throw new NotImplementedError('ScheduleManager.approve');
+  async approve(scheduleId: ScheduleId, actor: Actor): Promise<ScheduleView> {
+    const row = await this.requireRow(scheduleId);
+    if (row.status !== 'SUBMITTED') throw new DomainError('INVALID_STATE', 'Only a Submitted schedule can be approved');
+
+    const now = this.now();
+    // One transaction: the status change, the Advisor Decision, and one enrollment job keyed by the
+    // schedule ID (D9). Schedule Manager never calls Enrollment; Job Runner picks the job up.
+    const approved = await this.store.transaction(async (tx) => {
+      if (!await tx.updateScheduleStatus(scheduleId, 'SUBMITTED', {}, { scheduleId, from: 'SUBMITTED', to: 'APPROVED', actor, at: now })) {
+        return false;
+      }
+      await tx.insertAdvisorDecision({ scheduleId, advisorId: actor.kind === 'ADVISOR' ? actor.id : '', decision: 'APPROVE', decidedAt: now });
+      await tx.enqueueJob({ id: randomUUID(), kind: 'ENROLLMENT', key: scheduleId, runAt: now, firstAttemptAt: null, attempts: 0 });
+      return true;
+    });
+    if (!approved) throw new DomainError('INVALID_STATE', 'Only a Submitted schedule can be approved');
+
+    const { termName } = await this.describe(row);
+    await this.notifier.notify(row.studentId, 'SCHEDULE_APPROVED', scheduleId,
+      `Your ${termName} schedule "${row.name}" was approved and will be sent for enrollment.`);
+    return this.getSchedule(scheduleId);
   }
 
   /**
