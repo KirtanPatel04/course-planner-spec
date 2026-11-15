@@ -1,6 +1,6 @@
 // Planner (architecture.md §2; FR-004, FR-012, FR-014 plan update, D13).
 
-import { NotImplementedError } from '../domain/errors';
+import { DomainError, NotImplementedError } from '../domain/errors';
 import type {
   Course, CourseId, PlannedCourse, PlannedTerm, PlanOfStudy, RegistrationData, StudentId, Term, TermCode,
 } from '../domain/types';
@@ -25,9 +25,7 @@ export class Planner {
   async getPlan(studentId: StudentId): Promise<PlanOfStudy> {
     const stored = await this.store.getPlan(studentId);
     if (stored) return stored;
-    const plan = await this.generate(studentId, []);
-    await this.store.savePlan(plan);
-    return plan;
+    return this.save(await this.generate(studentId, []));
   }
 
   /**
@@ -35,8 +33,33 @@ export class Planner {
    * even when it breaks prerequisite order; the course is flagged instead (AC-011).
    * @throws DomainError INVALID_INPUT if the course is not in the plan or the term is unknown.
    */
-  async moveCourse(_studentId: StudentId, _courseId: CourseId, _toTerm: TermCode): Promise<PlanOfStudy> {
-    throw new NotImplementedError('Planner.moveCourse');
+  async moveCourse(studentId: StudentId, courseId: CourseId, toTerm: TermCode): Promise<PlanOfStudy> {
+    const plan = await this.getPlan(studentId);
+    const from = plan.terms.find((t) => t.courses.some((c) => c.courseId === courseId));
+    if (!from) throw new DomainError('INVALID_INPUT', 'The course is not in your plan');
+    const data = await this.store.getRegistrationData();
+    if (typeof toTerm !== 'string' || !this.futureTerms(data).some((t) => t.code === toTerm)) {
+      throw new DomainError('INVALID_INPUT', 'Unknown term, or the term has already started');
+    }
+
+    const moved: PlannedCourse = { courseId, placement: 'MANUAL', flags: [] };
+    const terms = plan.terms.map((t) => ({ ...t, courses: t.courses.filter((c) => c.courseId !== courseId) }));
+    let target = terms.find((t) => t.term === toTerm);
+    if (!target) {
+      target = { term: toTerm, courses: [] };
+      terms.push(target);
+      const startOf = (code: TermCode) => data.terms.find((t) => t.code === code)?.startDate ?? '';
+      terms.sort((a, b) => startOf(a.term).localeCompare(startOf(b.term)));
+    }
+    target.courses.push(moved);
+    return this.save({ ...plan, terms, updatedAt: this.clock.now().toISOString() });
+  }
+
+  /** Flags the plan (AC-011) and saves it. The plan is always saved, flagged or not. */
+  private async save(plan: PlanOfStudy): Promise<PlanOfStudy> {
+    const validated = await this.validator.validatePlan(plan);
+    await this.store.savePlan(validated);
+    return validated;
   }
 
   /**
