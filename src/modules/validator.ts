@@ -68,8 +68,25 @@ const missingPrerequisite: ScheduleRule = ({ data, studentId, term, sections, co
   });
 };
 
+/**
+ * CREDIT_LIMIT_EXCEEDED (AC-007): adds credit hours in schedule order and flags every section that
+ * takes the total above the Program's per-term limit. Exactly at the limit passes (plan.md Design question 5).
+ */
+const creditLimit: ScheduleRule = ({ data, studentId, sections, courses }, flags) => {
+  const programId = data.students.find((s) => s.id === studentId)?.programId;
+  const limit = data.programs.find((p) => p.id === programId)?.maxCreditHoursPerTerm;
+  if (limit === undefined) return;
+  let total = 0;
+  sections.forEach((s, i) => {
+    total += s ? courses.get(s.courseId)?.creditHours ?? 0 : 0;
+    if (total > limit) {
+      flags[i].push({ code: 'CREDIT_LIMIT_EXCEEDED', message: `Brings the schedule to ${total} credit hours; the limit is ${limit}`, relatedCourseIds: [], relatedSectionIds: [] });
+    }
+  });
+};
+
 /** FR-011's checks, one function per reason code. */
-const SCHEDULE_RULES: ScheduleRule[] = [timeConflict, missingPrerequisite];
+const SCHEDULE_RULES: ScheduleRule[] = [timeConflict, missingPrerequisite, creditLimit];
 
 export interface ScheduleValidationInput {
   studentId: StudentId;

@@ -137,7 +137,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `Validator.validateSchedule` (part: `CREDIT_LIMIT_EXCEEDED`).
 - **Depends on:** 2. Runs after 3 and 4 because AT-007-2 needs all four sections free of conflict and prerequisite flags.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 6: Validation rules, co-requisites and blocking holds
 
