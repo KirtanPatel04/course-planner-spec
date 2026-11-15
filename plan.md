@@ -299,7 +299,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `ScheduleManager.withdraw`; `AccessControl.authorizeSchedule` (student `WITHDRAW`). Route: `POST /schedules/:id/withdraw`.
 - **Depends on:** 13.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 16: One active submission per term
 
