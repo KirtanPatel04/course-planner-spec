@@ -11,6 +11,14 @@ export interface MailService {
   send(to: string, subject: string, body: string): Promise<void>;
 }
 
+const SUBJECTS: Record<NotificationEvent, string> = {
+  SCHEDULE_SUBMITTED: 'Course Planner: schedule submitted for review',
+  SCHEDULE_APPROVED: 'Course Planner: schedule approved',
+  SCHEDULE_RETURNED: 'Course Planner: schedule returned',
+  ENROLLMENT_RESULT: 'Course Planner: enrollment result',
+  REVALIDATION_FAILURE: 'Course Planner: schedule needs attention',
+};
+
 export class Notifier {
   constructor(
     private readonly store: DataStore,
@@ -30,6 +38,20 @@ export class Notifier {
 
   /** Sends queued emails through MailService; returns how many were sent. Called by Job Runner. */
   async sendPendingEmails(): Promise<number> {
-    throw new NotImplementedError('Notifier.sendPendingEmails');
+    const data = await this.store.getRegistrationData();
+    const emailOf = new Map([...data.students, ...data.advisors].map((p) => [p.id, p.email]));
+    let sent = 0;
+    for (const n of await this.store.listUnsentEmails()) {
+      const to = emailOf.get(n.recipientId);
+      if (!to) continue;
+      try {
+        await this.mail.send(to, SUBJECTS[n.event], n.message);
+      } catch {
+        continue; // the mail service is down; the email stays queued for the next run (NFR-004)
+      }
+      await this.store.markEmailSent(n.id, this.clock.now().toISOString());
+      sent++;
+    }
+    return sent;
   }
 }

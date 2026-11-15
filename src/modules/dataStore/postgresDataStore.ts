@@ -60,6 +60,21 @@ const DDL = `
     schedule_id text NOT NULL,
     data jsonb NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS jobs (
+    id text PRIMARY KEY,
+    kind text NOT NULL,
+    key text NOT NULL,
+    run_at text NOT NULL,
+    data jsonb NOT NULL,
+    UNIQUE (kind, key)
+  );
+  CREATE TABLE IF NOT EXISTS notifications (
+    seq bigserial PRIMARY KEY,
+    id text NOT NULL UNIQUE,
+    recipient_id text NOT NULL,
+    email_sent_at text,
+    data jsonb NOT NULL
+  );
 `;
 
 /** The parts of a ScheduleRow kept in real columns rather than in `data`. */
@@ -228,7 +243,12 @@ export class PostgresDataStore implements DataStore {
   // ----- jobs -----
 
   enqueueJob(_job: Job): Promise<boolean> { return ni('enqueueJob'); }
-  listDueJobs(_now: Instant, _kind?: JobKind): Promise<Job[]> { return ni('listDueJobs'); }
+  async listDueJobs(now: Instant, kind?: JobKind): Promise<Job[]> {
+    // ISO-8601 UTC instants in one format compare in time order as text (D14).
+    const { rows } = await (await this.db()).query<{ data: Job }>(
+      'SELECT data FROM jobs WHERE run_at <= $1 AND ($2::text IS NULL OR kind = $2) ORDER BY run_at, id', [now, kind ?? null]);
+    return rows.map((r) => r.data);
+  }
   updateJob(_job: Job): Promise<void> { return ni('updateJob'); }
   deleteJob(_id: string): Promise<void> { return ni('deleteJob'); }
 
@@ -236,6 +256,14 @@ export class PostgresDataStore implements DataStore {
 
   insertNotification(_n: Notification): Promise<void> { return ni('insertNotification'); }
   listNotifications(_recipientId: string): Promise<Notification[]> { return ni('listNotifications'); }
-  listUnsentEmails(): Promise<Notification[]> { return ni('listUnsentEmails'); }
-  markEmailSent(_id: string, _at: Instant): Promise<void> { return ni('markEmailSent'); }
+  async listUnsentEmails(): Promise<Notification[]> {
+    const { rows } = await (await this.db()).query<{ data: Notification }>(
+      'SELECT data FROM notifications WHERE email_sent_at IS NULL ORDER BY seq');
+    return rows.map((r) => r.data);
+  }
+
+  async markEmailSent(id: string, at: Instant): Promise<void> {
+    await (await this.db()).query(
+      `UPDATE notifications SET email_sent_at = $2, data = jsonb_set(data, '{emailSentAt}', to_jsonb($2::text)) WHERE id = $1`, [id, at]);
+  }
 }
