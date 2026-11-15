@@ -385,7 +385,7 @@ Failing tests by acceptance criterion (from the `describe`/test names):
 - **Skeleton to fill in:** `ScheduleManager.approve` (part: a repeated or racing approval of an Approved-or-later schedule returns it unchanged with 200); `ScheduleManager.withdraw` (part: losing a race returns `INVALID_STATE`); `enqueueJob` uniqueness by kind and key.
 - **Depends on:** 15, 20.
 - **Done when:** the listed tests pass and no previously passing test fails.
-- **Status:** not started.
+- **Status:** done.
 
 ## Slice 22: Registration system outage
 
